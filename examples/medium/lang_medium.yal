@@ -1,0 +1,57 @@
+%{
+/* Lexer for simple structured language (MEDIUM complexity) */
+%}
+
+DIGIT = [0-9]
+LETTER = [a-zA-Z_]
+ID = {LETTER}({LETTER}|{DIGIT})*
+NUMBER = {DIGIT}+
+STRING = \"[^\"]*\"
+WS = [ \t\n\r]
+COMMENT = "//"[^\n]*
+
+%%
+
+"if"                { return("IF", lexeme) }
+"else"              { return("ELSE", lexeme) }
+"while"             { return("WHILE", lexeme) }
+"for"               { return("FOR", lexeme) }
+"int"               { return("INT", lexeme) }
+"bool"              { return("BOOL", lexeme) }
+"return"            { return("RETURN", lexeme) }
+"true"              { return("TRUE", lexeme) }
+"false"             { return("FALSE", lexeme) }
+
+{ID}                { return("ID", lexeme) }
+{NUMBER}            { return("NUMBER", lexeme) }
+{STRING}            { return("STRING", lexeme) }
+
+"="                 { return("ASSIGN", lexeme) }
+"=="                { return("EQ", lexeme) }
+"!="                { return("NE", lexeme) }
+"<"                 { return("LT", lexeme) }
+">"                 { return("GT", lexeme) }
+"<="                { return("LE", lexeme) }
+">="                { return("GE", lexeme) }
+"+"                 { return("PLUS", lexeme) }
+"-"                 { return("MINUS", lexeme) }
+"*"                 { return("TIMES", lexeme) }
+"/"                 { return("DIV", lexeme) }
+"%"                 { return("MOD", lexeme) }
+"&&"                { return("AND", lexeme) }
+"||"                { return("OR", lexeme) }
+"!"                 { return("NOT", lexeme) }
+
+"{"                 { return("LBRACE", lexeme) }
+"}"                 { return("RBRACE", lexeme) }
+"("                 { return("LPAREN", lexeme) }
+")"                 { return("RPAREN", lexeme) }
+"["                 { return("LBRACK", lexeme) }
+"]"                 { return("RBRACK", lexeme) }
+";"                 { return("SEMI", lexeme) }
+","                 { return("COMMA", lexeme) }
+
+{WS}+               { skip() }
+{COMMENT}           { skip() }
+
+%%

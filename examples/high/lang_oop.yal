@@ -1,0 +1,125 @@
+%{
+/* Lexer for OOP-like language (HIGH complexity) */
+%}
+
+DIGIT = [0-9]
+HEX_DIGIT = [0-9a-fA-F]
+LETTER = [a-zA-Z_]
+ID = {LETTER}({LETTER}|{DIGIT})*
+NUMBER = {DIGIT}+
+FLOAT = {DIGIT}+"."{DIGIT}+
+HEX = "0x"{HEX_DIGIT}+
+STRING = \"([^\"]|\\\\\"|\\\\n)*\"
+CHAR = '([^']|\\\\')+'
+WS = [ \t\n\r]
+COMMENT = "//"[^\n]*
+MLCOMMENT = "/*"([^*]|\*[^/])*"*/"
+
+%%
+
+"class"             { return("CLASS", lexeme) }
+"interface"         { return("INTERFACE", lexeme) }
+"extends"           { return("EXTENDS", lexeme) }
+"implements"        { return("IMPLEMENTS", lexeme) }
+"public"            { return("PUBLIC", lexeme) }
+"private"           { return("PRIVATE", lexeme) }
+"protected"         { return("PROTECTED", lexeme) }
+"static"            { return("STATIC", lexeme) }
+"final"             { return("FINAL", lexeme) }
+"abstract"          { return("ABSTRACT", lexeme) }
+"void"              { return("VOID", lexeme) }
+"int"               { return("INT", lexeme) }
+"float"             { return("FLOAT_TYPE", lexeme) }
+"double"            { return("DOUBLE", lexeme) }
+"boolean"           { return("BOOLEAN", lexeme) }
+"char"              { return("CHAR_TYPE", lexeme) }
+"String"            { return("STRING_TYPE", lexeme) }
+"new"               { return("NEW", lexeme) }
+"this"              { return("THIS", lexeme) }
+"super"             { return("SUPER", lexeme) }
+"if"                { return("IF", lexeme) }
+"else"              { return("ELSE", lexeme) }
+"while"             { return("WHILE", lexeme) }
+"do"                { return("DO", lexeme) }
+"for"               { return("FOR", lexeme) }
+"foreach"           { return("FOREACH", lexeme) }
+"switch"            { return("SWITCH", lexeme) }
+"case"              { return("CASE", lexeme) }
+"default"           { return("DEFAULT", lexeme) }
+"break"             { return("BREAK", lexeme) }
+"continue"          { return("CONTINUE", lexeme) }
+"return"            { return("RETURN", lexeme) }
+"try"               { return("TRY", lexeme) }
+"catch"             { return("CATCH", lexeme) }
+"finally"           { return("FINALLY", lexeme) }
+"throw"             { return("THROW", lexeme) }
+"throws"            { return("THROWS", lexeme) }
+"import"            { return("IMPORT", lexeme) }
+"package"           { return("PACKAGE", lexeme) }
+"null"              { return("NULL", lexeme) }
+"true"              { return("TRUE", lexeme) }
+"false"             { return("FALSE", lexeme) }
+"instanceof"        { return("INSTANCEOF", lexeme) }
+
+{ID}                { return("ID", lexeme) }
+{NUMBER}            { return("NUMBER", lexeme) }
+{FLOAT}             { return("FLOAT", lexeme) }
+{HEX}               { return("HEX", lexeme) }
+{STRING}            { return("STRING", lexeme) }
+{CHAR}              { return("CHAR", lexeme) }
+
+"="                 { return("ASSIGN", lexeme) }
+"+="                { return("PLUS_ASSIGN", lexeme) }
+"-="                { return("MINUS_ASSIGN", lexeme) }
+"*="                { return("TIMES_ASSIGN", lexeme) }
+"/="                { return("DIV_ASSIGN", lexeme) }
+"%="                { return("MOD_ASSIGN", lexeme) }
+"&="                { return("AND_ASSIGN", lexeme) }
+"|="                { return("OR_ASSIGN", lexeme) }
+"^="                { return("XOR_ASSIGN", lexeme) }
+"<<="               { return("LSHIFT_ASSIGN", lexeme) }
+">>="               { return("RSHIFT_ASSIGN", lexeme) }
+
+"=="                { return("EQ", lexeme) }
+"!="                { return("NE", lexeme) }
+"<"                 { return("LT", lexeme) }
+">"                 { return("GT", lexeme) }
+"<="                { return("LE", lexeme) }
+">="                { return("GE", lexeme) }
+
+"+"                 { return("PLUS", lexeme) }
+"-"                 { return("MINUS", lexeme) }
+"*"                 { return("TIMES", lexeme) }
+"/"                 { return("DIV", lexeme) }
+"%"                 { return("MOD", lexeme) }
+"++"                { return("INC", lexeme) }
+"--"                { return("DEC", lexeme) }
+
+"&&"                { return("AND", lexeme) }
+"||"                { return("OR", lexeme) }
+"!"                 { return("NOT", lexeme) }
+"&"                 { return("BIT_AND", lexeme) }
+"|"                 { return("BIT_OR", lexeme) }
+"^"                 { return("XOR", lexeme) }
+"~"                 { return("BIT_NOT", lexeme) }
+"<<"                { return("LSHIFT", lexeme) }
+">>"                { return("RSHIFT", lexeme) }
+
+"?"                 { return("QUESTION", lexeme) }
+":"                 { return("COLON", lexeme) }
+"."                 { return("DOT", lexeme) }
+","                 { return("COMMA", lexeme) }
+";"                 { return("SEMI", lexeme) }
+
+"{"                 { return("LBRACE", lexeme) }
+"}"                 { return("RBRACE", lexeme) }
+"("                 { return("LPAREN", lexeme) }
+")"                 { return("RPAREN", lexeme) }
+"["                 { return("LBRACK", lexeme) }
+"]"                 { return("RBRACK", lexeme) }
+
+{WS}+               { skip() }
+{COMMENT}           { skip() }
+{MLCOMMENT}         { skip() }
+
+%%

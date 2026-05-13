@@ -1,0 +1,287 @@
+%{
+/* Parser for OOP-like language (HIGH complexity) */
+%}
+
+%token ID NUMBER FLOAT HEX STRING CHAR
+%token CLASS INTERFACE EXTENDS IMPLEMENTS PACKAGE IMPORT
+%token PUBLIC PRIVATE PROTECTED STATIC FINAL ABSTRACT
+%token VOID INT FLOAT_TYPE DOUBLE BOOLEAN CHAR_TYPE STRING_TYPE
+%token NEW THIS SUPER
+%token IF ELSE WHILE DO FOR FOREACH SWITCH CASE DEFAULT
+%token BREAK CONTINUE RETURN
+%token TRY CATCH FINALLY THROW THROWS
+%token NULL TRUE FALSE INSTANCEOF
+%token ASSIGN PLUS_ASSIGN MINUS_ASSIGN TIMES_ASSIGN DIV_ASSIGN MOD_ASSIGN
+%token AND_ASSIGN OR_ASSIGN XOR_ASSIGN LSHIFT_ASSIGN RSHIFT_ASSIGN
+%token EQ NE LT GT LE GE
+%token PLUS MINUS TIMES DIV MOD INC DEC
+%token AND OR NOT BIT_AND BIT_OR XOR BIT_NOT LSHIFT RSHIFT
+%token QUESTION COLON DOT COMMA SEMI
+%token LBRACE RBRACE LPAREN RPAREN LBRACK RBRACK
+
+%start compilation_unit
+
+%%
+
+compilation_unit
+    : import_list package_decl type_decl_list { $$ = CompilationUnit($1, $2, $3) }
+    | package_decl type_decl_list { $$ = CompilationUnit([], $1, $2) }
+    | type_decl_list { $$ = CompilationUnit([], None, $1) }
+    ;
+
+import_list
+    : import_decl { $$ = [$1] }
+    | import_list import_decl { $$ = $1 + [$2] }
+    ;
+
+import_decl
+    : IMPORT qualified_name SEMI { $$ = ImportDecl($2) }
+    ;
+
+qualified_name
+    : ID { $$ = $1 }
+    | qualified_name DOT ID { $$ = $1 + "." + $3 }
+    ;
+
+package_decl
+    : PACKAGE qualified_name SEMI { $$ = PackageDecl($2) }
+    ;
+
+type_decl_list
+    : type_decl { $$ = [$1] }
+    | type_decl_list type_decl { $$ = $1 + [$2] }
+    ;
+
+type_decl
+    : class_decl { $$ = $1 }
+    | interface_decl { $$ = $1 }
+    ;
+
+class_decl
+    : modifiers CLASS ID class_body { $$ = ClassDecl($1, $3, None, None, $4) }
+    | modifiers CLASS ID EXTENDS qualified_name class_body { $$ = ClassDecl($1, $3, $5, None, $6) }
+    | modifiers CLASS ID IMPLEMENTS interface_list class_body { $$ = ClassDecl($1, $3, None, $5, $6) }
+    | modifiers CLASS ID EXTENDS qualified_name IMPLEMENTS interface_list class_body { $$ = ClassDecl($1, $3, $5, $7, $8) }
+    ;
+
+interface_list
+    : qualified_name { $$ = [$1] }
+    | interface_list COMMA qualified_name { $$ = $1 + [$3] }
+    ;
+
+interface_decl
+    : modifiers INTERFACE ID interface_body { $$ = InterfaceDecl($1, $3, $4) }
+    ;
+
+class_body
+    : LBRACE member_list RBRACE { $$ = ClassBody($2) }
+    | LBRACE RBRACE { $$ = ClassBody([]) }
+    ;
+
+interface_body
+    : LBRACE method_decl_list RBRACE { $$ = InterfaceBody($2) }
+    | LBRACE RBRACE { $$ = InterfaceBody([]) }
+    ;
+
+member_list
+    : member { $$ = [$1] }
+    | member_list member { $$ = $1 + [$2] }
+    ;
+
+member
+    : field_decl { $$ = $1 }
+    | method_decl { $$ = $1 }
+    | constructor_decl { $$ = $1 }
+    ;
+
+field_decl
+    : modifiers type ID SEMI { $$ = FieldDecl($1, $2, $3) }
+    | modifiers type ID ASSIGN expr SEMI { $$ = FieldDeclAssign($1, $2, $3, $5) }
+    ;
+
+method_decl
+    : modifiers type ID LPAREN formal_params RPAREN method_body { $$ = MethodDecl($1, $2, $3, $5, $7) }
+    | modifiers type ID LPAREN RPAREN method_body { $$ = MethodDecl($1, $2, $3, [], $6) }
+    | modifiers VOID ID LPAREN formal_params RPAREN method_body { $$ = MethodDecl($1, "void", $3, $5, $7) }
+    | modifiers VOID ID LPAREN RPAREN method_body { $$ = MethodDecl($1, "void", $3, [], $6) }
+    ;
+
+method_decl_list
+    : method_decl { $$ = [$1] }
+    | method_decl_list method_decl { $$ = $1 + [$2] }
+    ;
+
+constructor_decl
+    : modifiers ID LPAREN formal_params RPAREN LBRACE statement_list RBRACE { $$ = ConstructorDecl($1, $2, $4, $7) }
+    | modifiers ID LPAREN RPAREN LBRACE statement_list RBRACE { $$ = ConstructorDecl($1, $2, [], $6) }
+    ;
+
+formal_params
+    : formal_param { $$ = [$1] }
+    | formal_params COMMA formal_param { $$ = $1 + [$3] }
+    ;
+
+formal_param
+    : type ID { $$ = FormalParam($1, $2) }
+    ;
+
+modifiers
+    : modifier { $$ = [$1] }
+    | modifiers modifier { $$ = $1 + [$2] }
+    ;
+
+modifier
+    : PUBLIC { $$ = "public" }
+    | PRIVATE { $$ = "private" }
+    | PROTECTED { $$ = "protected" }
+    | STATIC { $$ = "static" }
+    | FINAL { $$ = "final" }
+    | ABSTRACT { $$ = "abstract" }
+    ;
+
+type
+    : primitive_type { $$ = $1 }
+    | reference_type { $$ = $1 }
+    ;
+
+primitive_type
+    : INT { $$ = "int" }
+    | FLOAT_TYPE { $$ = "float" }
+    | DOUBLE { $$ = "double" }
+    | BOOLEAN { $$ = "boolean" }
+    | CHAR_TYPE { $$ = "char" }
+    ;
+
+reference_type
+    : qualified_name { $$ = $1 }
+    | reference_type LBRACK RBRACK { $$ = $1 + "[]" }
+    ;
+
+method_body
+    : block { $$ = $1 }
+    ;
+
+block
+    : LBRACE statement_list RBRACE { $$ = Block($2) }
+    | LBRACE RBRACE { $$ = Block([]) }
+    ;
+
+statement_list
+    : statement { $$ = [$1] }
+    | statement_list statement { $$ = $1 + [$2] }
+    ;
+
+statement
+    : block { $$ = $1 }
+    | expr SEMI { $$ = ExprStmt($1) }
+    | type ID SEMI { $$ = DeclStmt($1, $2) }
+    | type ID ASSIGN expr SEMI { $$ = DeclAssignStmt($1, $2, $4) }
+    | IF LPAREN expr RPAREN statement { $$ = IfStmt($3, $5, None) }
+    | IF LPAREN expr RPAREN statement ELSE statement { $$ = IfStmt($3, $5, $7) }
+    | WHILE LPAREN expr RPAREN statement { $$ = WhileStmt($3, $5) }
+    | DO statement WHILE LPAREN expr RPAREN SEMI { $$ = DoWhileStmt($2, $5) }
+    | FOR LPAREN expr SEMI expr SEMI expr RPAREN statement { $$ = ForStmt($3, $5, $7, $9) }
+    | SWITCH LPAREN expr RPAREN switch_block { $$ = SwitchStmt($3, $5) }
+    | BREAK SEMI { $$ = BreakStmt() }
+    | CONTINUE SEMI { $$ = ContinueStmt() }
+    | RETURN expr SEMI { $$ = ReturnStmt($2) }
+    | RETURN SEMI { $$ = ReturnStmt(None) }
+    | TRY block catch_list { $$ = TryStmt($2, $3, None) }
+    | TRY block catch_list FINALLY block { $$ = TryStmt($2, $3, $5) }
+    | THROW expr SEMI { $$ = ThrowStmt($2) }
+    ;
+
+switch_block
+    : LBRACE switch_case_list RBRACE { $$ = SwitchBlock($2) }
+    ;
+
+switch_case_list
+    : switch_case { $$ = [$1] }
+    | switch_case_list switch_case { $$ = $1 + [$2] }
+    ;
+
+switch_case
+    : CASE expr COLON statement_list { $$ = SwitchCase($2, $4) }
+    | DEFAULT COLON statement_list { $$ = DefaultCase($3) }
+    ;
+
+catch_list
+    : catch_block { $$ = [$1] }
+    | catch_list catch_block { $$ = $1 + [$2] }
+    ;
+
+catch_block
+    : CATCH LPAREN type ID RPAREN block { $$ = CatchBlock($3, $4, $6) }
+    ;
+
+expr
+    : primary { $$ = $1 }
+    | expr PLUS expr { $$ = BinOp($1, "+", $3) }
+    | expr MINUS expr { $$ = BinOp($1, "-", $3) }
+    | expr TIMES expr { $$ = BinOp($1, "*", $3) }
+    | expr DIV expr { $$ = BinOp($1, "/", $3) }
+    | expr MOD expr { $$ = BinOp($1, "%", $3) }
+    | expr LSHIFT expr { $$ = BinOp($1, "<<", $3) }
+    | expr RSHIFT expr { $$ = BinOp($1, ">>", $3) }
+    | expr LT expr { $$ = BinOp($1, "<", $3) }
+    | expr GT expr { $$ = BinOp($1, ">", $3) }
+    | expr LE expr { $$ = BinOp($1, "<=", $3) }
+    | expr GE expr { $$ = BinOp($1, ">=", $3) }
+    | expr EQ expr { $$ = BinOp($1, "==", $3) }
+    | expr NE expr { $$ = BinOp($1, "!=", $3) }
+    | expr BIT_AND expr { $$ = BinOp($1, "&", $3) }
+    | expr BIT_OR expr { $$ = BinOp($1, "|", $3) }
+    | expr XOR expr { $$ = BinOp($1, "^", $3) }
+    | expr AND expr { $$ = BinOp($1, "&&", $3) }
+    | expr OR expr { $$ = BinOp($1, "||", $3) }
+    | NOT expr { $$ = UnOp("!", $2) }
+    | BIT_NOT expr { $$ = UnOp("~", $2) }
+    | INC expr { $$ = UnOp("++pre", $2) }
+    | expr INC { $$ = UnOp("post++", $1) }
+    | DEC expr { $$ = UnOp("--pre", $2) }
+    | expr DEC { $$ = UnOp("post--", $1) }
+    | expr QUESTION expr COLON expr { $$ = TernaryOp($1, $3, $5) }
+    | LPAREN type RPAREN expr { $$ = CastExpr($2, $4) }
+    | NEW qualified_name LPAREN arg_list RPAREN { $$ = NewExpr($2, $4) }
+    | NEW qualified_name LPAREN RPAREN { $$ = NewExpr($2, []) }
+    | expr DOT ID { $$ = FieldAccess($1, $3) }
+    | expr DOT ID LPAREN arg_list RPAREN { $$ = MethodCall($1, $3, $5) }
+    | expr DOT ID LPAREN RPAREN { $$ = MethodCall($1, $3, []) }
+    | ID LPAREN arg_list RPAREN { $$ = FunctionCall($1, $3) }
+    | ID LPAREN RPAREN { $$ = FunctionCall($1, []) }
+    | expr LBRACK expr RBRACK { $$ = ArrayAccess($1, $3) }
+    | expr ASSIGN expr { $$ = Assignment($1, $3) }
+    | expr PLUS_ASSIGN expr { $$ = CompoundAssign($1, "+=", $3) }
+    | expr MINUS_ASSIGN expr { $$ = CompoundAssign($1, "-=", $3) }
+    | expr TIMES_ASSIGN expr { $$ = CompoundAssign($1, "*=", $3) }
+    | expr DIV_ASSIGN expr { $$ = CompoundAssign($1, "/=", $3) }
+    | expr MOD_ASSIGN expr { $$ = CompoundAssign($1, "%=", $3) }
+    | expr AND_ASSIGN expr { $$ = CompoundAssign($1, "&=", $3) }
+    | expr OR_ASSIGN expr { $$ = CompoundAssign($1, "|=", $3) }
+    | expr XOR_ASSIGN expr { $$ = CompoundAssign($1, "^=", $3) }
+    | expr LSHIFT_ASSIGN expr { $$ = CompoundAssign($1, "<<=", $3) }
+    | expr RSHIFT_ASSIGN expr { $$ = CompoundAssign($1, ">>=", $3) }
+    | expr INSTANCEOF type { $$ = InstanceOf($1, $3) }
+    ;
+
+arg_list
+    : expr { $$ = [$1] }
+    | arg_list COMMA expr { $$ = $1 + [$3] }
+    ;
+
+primary
+    : NUMBER { $$ = Number($1) }
+    | FLOAT { $$ = Float($1) }
+    | HEX { $$ = Hex($1) }
+    | STRING { $$ = String($1) }
+    | CHAR { $$ = Char($1) }
+    | TRUE { $$ = Bool(True) }
+    | FALSE { $$ = Bool(False) }
+    | NULL { $$ = Null() }
+    | ID { $$ = Var($1) }
+    | THIS { $$ = This() }
+    | SUPER { $$ = Super() }
+    | LPAREN expr RPAREN { $$ = $2 }
+    ;
+
+%%

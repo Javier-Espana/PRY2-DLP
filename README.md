@@ -1,29 +1,30 @@
-# PRY1-DLP
+# PRY2-DLP - YALex Studio: Generador de Analizadores Léxicos y Sintácticos
 
-Generador de analizadores léxicos (YALex a lexer en Python), implementado sin librerías externas de expresiones regulares o autómatas.
+**YALex Studio** es un generador de analizadores léxicos (YALex) y analizadores sintácticos (YAPar) implementado completamente en Python sin dependencias externas de expresiones regulares o librerías de autómatas finitos.
 
-## Resumen
+## 🎯 Propósito
 
-El proyecto recibe una especificación YALex y permite:
+El proyecto genera analizadores (lexers y parsers) desde especificaciones estilo Yacc/Lex:
+1. Recibe archivo `.yal` (especificación lexer) y `.yapar` (especificación parser)
+2. Genera código Python autónomo que no depende del generador
+3. Produce diagramas de transición de estados (lexer) y automata LR(0) (parser)
+4. Procesa archivos de entrada mediante el flujo lexer → parser
+5. Reporta análisis exitoso o errores detectados
 
-## Nota de reorganización
+## 📊 Estado del Proyecto
 
-Se ha iniciado una reorganización de carpetas para soportar el siguiente
-trabajo: el generador de analizadores sintácticos (YAPar). La UI se mueve
-provisoriamente a `frontend/desktop-app` y se crea `src/yapar_generator`
-como esqueleto para el generador LR(0). El paquete `src/yalex_parser`
-permanece operativo y se expone también mediante `src/yalex_generator`
-como shim de compatibilidad.
-
-- Parsear la especificación y sus regex.
-- Construir AFD minimizado con método directo.
-- Tokenizar entradas con estrategia maximal munch.
-- Generar un lexer Python autónomo.
-
-Incluye dos formas de uso:
-
-- Modo CLI interactivo en terminal.
-- App desktop estilo IDE con Tauri + React en la carpeta desktop-app.
+| Componente | Estado | Detalles |
+|-----------|--------|---------|
+| YALex Parser | ✅ COMPLETO | Método directo (FollowPos), AFD minimizado (Hopcroft) |
+| YALex Codegen | ✅ COMPLETO | Genera lexer Python autónomo |
+| YALex Tests | ✅ 15/15 PASANDO | Casos extremos cubiertos |
+| YAPar Parser | ✅ COMPLETO | Especificaciones `.yapar` parseadas |
+| LR(0) Constructor | ✅ COMPLETO | Colección canónica, closure/GOTO |
+| SLR Table Gen | ✅ COMPLETO | ACTION/GOTO, FOLLOW sets |
+| YAPar Codegen | ✅ COMPLETO | Genera parser Python autónomo |
+| LR(0) Visualizer | ✅ COMPLETO | Formato Graphviz DOT |
+| YAPar Tests | ✅ 3/3 PASANDO | Parsing, LR(0), tabla SLR |
+| **Total Tests** | ✅ **18/18 PASANDO** | Suite completa funcional |
 
 ## Estructura Principal
 

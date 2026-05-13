@@ -1,0 +1,2 @@
+rule tokens =
+  'a' { return "A" }

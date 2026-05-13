@@ -6,6 +6,15 @@ Generador de analizadores léxicos (YALex a lexer en Python), implementado sin l
 
 El proyecto recibe una especificación YALex y permite:
 
+## Nota de reorganización
+
+Se ha iniciado una reorganización de carpetas para soportar el siguiente
+trabajo: el generador de analizadores sintácticos (YAPar). La UI se mueve
+provisoriamente a `frontend/desktop-app` y se crea `src/yapar_generator`
+como esqueleto para el generador LR(0). El paquete `src/yalex_parser`
+permanece operativo y se expone también mediante `src/yalex_generator`
+como shim de compatibilidad.
+
 - Parsear la especificación y sus regex.
 - Construir AFD minimizado con método directo.
 - Tokenizar entradas con estrategia maximal munch.

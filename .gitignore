@@ -1,4 +1,52 @@
-src/desktop-app/dist
-src/desktop-app/node_modules
-src/desktop-app/src-tauri/target
-__pycache__
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Caché y archivos compilados de Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Builds o empaquetados
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema Operativo
+.DS_Store
+Thumbs.db
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# --- Frontend (Vite/TypeScript) ---
+.vite/
+*.tsbuildinfo
+*.local
+
+# --- Tauri / Rust ---
+# El directorio target contiene todos los binarios compilados de Rust (pesa GBs)
+**/src-tauri/target/
+
+# Archivos temporales de compilación de Tauri
+**/src-tauri/gen/
+
+# --- Otros archivos generados ---
+# He visto que tienes carpetas 'output' con lexers generados
+**/output/

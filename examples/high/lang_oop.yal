@@ -1,122 +1,107 @@
-%{
-/* Lexer for OOP-like language (HIGH complexity) */
-%}
+(* Lexer for OOP-like language (HIGH complexity) *)
 
-DIGIT = [0-9]
-HEX_DIGIT = [0-9a-fA-F]
-LETTER = [a-zA-Z_]
-ID = {LETTER}({LETTER}|{DIGIT})*
-NUMBER = {DIGIT}+
-FLOAT = {DIGIT}+"."{DIGIT}+
-HEX = "0x"{HEX_DIGIT}+
-STRING = \"([^\"]|\\\\\"|\\\\n)*\"
-CHAR = '([^']|\\\\')+'
-WS = [ \t\n\r]
-COMMENT = "//"[^\n]*
-MLCOMMENT = "/*"([^*]|\*[^/])*"*/"
+let digit = ['0'-'9']
+let hex_digit = ['0'-'9''a'-'f''A'-'F']
+let letter = ['a'-'z''A'-'Z''_']
+let id = letter (letter | digit)*
+let number = digit+
+let float = digit+ '.' digit+
+let hex = "0x" hex_digit+
+let string = '"' ([^'"'] | '\\"' | '\\n')* '"'
+let char_lit = '\'' ([^'\''] | '\\'\'')+ '\''
+let ws = [' ''\t''\n''\r']+
+let comment = "//" [^'\n']*
+let mlcomment = "/*" ([^*] | '*' [^/])* "*/"
 
-%%
-
-"class"             { return("CLASS", lexeme) }
-"interface"         { return("INTERFACE", lexeme) }
-"extends"           { return("EXTENDS", lexeme) }
-"implements"        { return("IMPLEMENTS", lexeme) }
-"public"            { return("PUBLIC", lexeme) }
-"private"           { return("PRIVATE", lexeme) }
-"protected"         { return("PROTECTED", lexeme) }
-"static"            { return("STATIC", lexeme) }
-"final"             { return("FINAL", lexeme) }
-"abstract"          { return("ABSTRACT", lexeme) }
-"void"              { return("VOID", lexeme) }
-"int"               { return("INT", lexeme) }
-"float"             { return("FLOAT_TYPE", lexeme) }
-"double"            { return("DOUBLE", lexeme) }
-"boolean"           { return("BOOLEAN", lexeme) }
-"char"              { return("CHAR_TYPE", lexeme) }
-"String"            { return("STRING_TYPE", lexeme) }
-"new"               { return("NEW", lexeme) }
-"this"              { return("THIS", lexeme) }
-"super"             { return("SUPER", lexeme) }
-"if"                { return("IF", lexeme) }
-"else"              { return("ELSE", lexeme) }
-"while"             { return("WHILE", lexeme) }
-"do"                { return("DO", lexeme) }
-"for"               { return("FOR", lexeme) }
-"foreach"           { return("FOREACH", lexeme) }
-"switch"            { return("SWITCH", lexeme) }
-"case"              { return("CASE", lexeme) }
-"default"           { return("DEFAULT", lexeme) }
-"break"             { return("BREAK", lexeme) }
-"continue"          { return("CONTINUE", lexeme) }
-"return"            { return("RETURN", lexeme) }
-"try"               { return("TRY", lexeme) }
-"catch"             { return("CATCH", lexeme) }
-"finally"           { return("FINALLY", lexeme) }
-"throw"             { return("THROW", lexeme) }
-"throws"            { return("THROWS", lexeme) }
-"import"            { return("IMPORT", lexeme) }
-"package"           { return("PACKAGE", lexeme) }
-"null"              { return("NULL", lexeme) }
-"true"              { return("TRUE", lexeme) }
-"false"             { return("FALSE", lexeme) }
-"instanceof"        { return("INSTANCEOF", lexeme) }
-
-{ID}                { return("ID", lexeme) }
-{NUMBER}            { return("NUMBER", lexeme) }
-{FLOAT}             { return("FLOAT", lexeme) }
-{HEX}               { return("HEX", lexeme) }
-{STRING}            { return("STRING", lexeme) }
-{CHAR}              { return("CHAR", lexeme) }
-
-"="                 { return("ASSIGN", lexeme) }
-"+="                { return("PLUS_ASSIGN", lexeme) }
-"-="                { return("MINUS_ASSIGN", lexeme) }
-"*="                { return("TIMES_ASSIGN", lexeme) }
-"/="                { return("DIV_ASSIGN", lexeme) }
-"%="                { return("MOD_ASSIGN", lexeme) }
-"&="                { return("AND_ASSIGN", lexeme) }
-"|="                { return("OR_ASSIGN", lexeme) }
-"^="                { return("XOR_ASSIGN", lexeme) }
-"<<="               { return("LSHIFT_ASSIGN", lexeme) }
-">>="               { return("RSHIFT_ASSIGN", lexeme) }
-
-"=="                { return("EQ", lexeme) }
-"!="                { return("NE", lexeme) }
-"<"                 { return("LT", lexeme) }
-">"                 { return("GT", lexeme) }
-"<="                { return("LE", lexeme) }
-">="                { return("GE", lexeme) }
-
-"+"                 { return("PLUS", lexeme) }
-"-"                 { return("MINUS", lexeme) }
-"*"                 { return("TIMES", lexeme) }
-"/"                 { return("DIV", lexeme) }
-"%"                 { return("MOD", lexeme) }
-"++"                { return("INC", lexeme) }
-"--"                { return("DEC", lexeme) }
-
-"&&"                { return("AND", lexeme) }
-"||"                { return("OR", lexeme) }
-"!"                 { return("NOT", lexeme) }
-"&"                 { return("BIT_AND", lexeme) }
-"|"                 { return("BIT_OR", lexeme) }
-"^"                 { return("XOR", lexeme) }
-"~"                 { return("BIT_NOT", lexeme) }
-"<<"                { return("LSHIFT", lexeme) }
-">>"                { return("RSHIFT", lexeme) }
-
-"?"                 { return("QUESTION", lexeme) }
-":"                 { return("COLON", lexeme) }
-"."                 { return("DOT", lexeme) }
-","                 { return("COMMA", lexeme) }
-";"                 { return("SEMI", lexeme) }
-
-"{"                 { return("LBRACE", lexeme) }
-"}"                 { return("RBRACE", lexeme) }
-"("                 { return("LPAREN", lexeme) }
-")"                 { return("RPAREN", lexeme) }
-"["                 { return("LBRACK", lexeme) }
-"]"                 { return("RBRACK", lexeme) }
+rule tokens =
+	ws              { skip() }
+| comment         { skip() }
+| mlcomment       { skip() }
+| "class"        { return "CLASS" }
+| "interface"    { return "INTERFACE" }
+| "extends"      { return "EXTENDS" }
+| "implements"   { return "IMPLEMENTS" }
+| "public"       { return "PUBLIC" }
+| "private"      { return "PRIVATE" }
+| "protected"    { return "PROTECTED" }
+| "static"       { return "STATIC" }
+| "final"        { return "FINAL" }
+| "abstract"     { return "ABSTRACT" }
+| "void"         { return "VOID" }
+| "int"          { return "INT" }
+| "float"        { return "FLOAT_TYPE" }
+| "double"       { return "DOUBLE" }
+| "boolean"      { return "BOOLEAN" }
+| "char"         { return "CHAR_TYPE" }
+| "String"       { return "STRING_TYPE" }
+| "new"          { return "NEW" }
+| "this"         { return "THIS" }
+| "super"        { return "SUPER" }
+| "if"           { return "IF" }
+| "else"         { return "ELSE" }
+| "while"        { return "WHILE" }
+| "do"           { return "DO" }
+| "for"          { return "FOR" }
+| "foreach"      { return "FOREACH" }
+| "switch"       { return "SWITCH" }
+| "case"         { return "CASE" }
+| "default"      { return "DEFAULT" }
+| "break"        { return "BREAK" }
+| "continue"     { return "CONTINUE" }
+| "return"       { return "RETURN" }
+| "try"          { return "TRY" }
+| "catch"        { return "CATCH" }
+| "finally"      { return "FINALLY" }
+| "throw"        { return "THROW" }
+| "throws"       { return "THROWS" }
+| "import"       { return "IMPORT" }
+| "package"      { return "PACKAGE" }
+| "null"         { return "NULL" }
+| "true"         { return "TRUE" }
+| "false"        { return "FALSE" }
+| "instanceof"   { return "INSTANCEOF" }
+| id              { return "ID" }
+| float           { return "FLOAT" }
+| hex             { return "HEX" }
+| number          { return "NUMBER" }
+| string          { return "STRING" }
+| char_lit        { return "CHAR" }
+| "+="           { return "PLUS_ASSIGN" }
+| "-="           { return "MINUS_ASSIGN" }
+| "*="           { return "TIMES_ASSIGN" }
+| "/="           { return "DIV_ASSIGN" }
+| "%="           { return "MOD_ASSIGN" }
+| "&="           { return "AND_ASSIGN" }
+| "|="           { return "OR_ASSIGN" }
+| "^="           { return "XOR_ASSIGN" }
+| "<<="          { return "LSHIFT_ASSIGN" }
+| ">>="          { return "RSHIFT_ASSIGN" }
+| "=="           { return "EQ" }
+| "!="           { return "NE" }
+| "<="           { return "LE" }
+| ">="           { return "GE" }
+| "<<"           { return "LSHIFT" }
+| ">>"           { return "RSHIFT" }
+| "++"           { return "INC" }
+| "--"           { return "DEC" }
+| "&&"           { return "AND" }
+| "||"           { return "OR" }
+| "!"            { return "NOT" }
+| "&"            { return "BIT_AND" }
+| "|"            { return "BIT_OR" }
+| "^"            { return "XOR" }
+| "~"            { return "BIT_NOT" }
+| "?"            { return "QUESTION" }
+| ":"            { return "COLON" }
+| "."            { return "DOT" }
+| ","            { return "COMMA" }
+| ";"            { return "SEMI" }
+| "{"            { return "LBRACE" }
+| "}"            { return "RBRACE" }
+| "("            { return "LPAREN" }
+| ")"            { return "RPAREN" }
+| "["            { return "LBRACK" }
+| "]"            { return "RBRACK" }
 
 {WS}+               { skip() }
 {COMMENT}           { skip() }

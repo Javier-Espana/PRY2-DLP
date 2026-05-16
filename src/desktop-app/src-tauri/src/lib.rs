@@ -114,6 +114,13 @@ fn pick_directory() -> Option<String> {
 }
 
 #[tauri::command]
+fn pick_file() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn copy_file(src: String, dest: String) -> Result<(), String> {
     let src_path = Path::new(&src);
     let dest_path = Path::new(&dest);
@@ -188,36 +195,57 @@ fn delete_file(path: String) -> Result<(), String> {
     }
 }
 
-fn run_python_command(program: &str, args: &[&str], payload: &str) -> Result<String, String> {
+enum BridgeCommandError {
+    ProgramNotFound(String),
+    ExecutionFailed(String),
+}
+
+fn run_python_command(program: &str, args: &[&str], payload: &str) -> Result<String, BridgeCommandError> {
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("No se pudo iniciar {program}: {e}"))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                BridgeCommandError::ProgramNotFound(format!("No se encontró ejecutable '{program}'"))
+            } else {
+                BridgeCommandError::ExecutionFailed(format!("No se pudo iniciar {program}: {e}"))
+            }
+        })?;
 
     if let Some(stdin) = child.stdin.as_mut() {
         stdin
             .write_all(payload.as_bytes())
-            .map_err(|e| format!("No se pudo escribir en stdin: {e}"))?;
+            .map_err(|e| BridgeCommandError::ExecutionFailed(format!("No se pudo escribir en stdin: {e}")))?;
     }
 
     let output = child
         .wait_with_output()
-        .map_err(|e| format!("Error esperando proceso Python: {e}"))?;
+        .map_err(|e| BridgeCommandError::ExecutionFailed(format!("Error esperando proceso Python: {e}")))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        Err(format!(
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        if let Ok(parsed) = serde_json::from_str::<Value>(&stdout) {
+            if let Some(error_msg) = parsed
+                .get("error")
+                .and_then(|v| v.as_str())
+            {
+                return Err(BridgeCommandError::ExecutionFailed(error_msg.to_string()));
+            }
+        }
+
+        Err(BridgeCommandError::ExecutionFailed(format!(
             "Bridge Python falló (status {:?}): {} {}",
             output.status.code(),
             stderr,
             stdout
-        ))
+        )))
     }
 }
 
@@ -265,6 +293,40 @@ fn resolve_bridge_script(workspace_root: &str) -> Result<PathBuf, String> {
     ))
 }
 
+fn resolve_python_executable(workspace_root: &str) -> Result<(String, Vec<String>), String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    let workspace_root_path = PathBuf::from(workspace_root);
+    candidates.push(workspace_root_path.join(".venv").join("Scripts").join("python.exe"));
+    candidates.push(workspace_root_path.join(".venv").join("Scripts").join("python3.exe"));
+    candidates.push(workspace_root_path.join(".venv").join("bin").join("python3"));
+    candidates.push(workspace_root_path.join(".venv").join("bin").join("python"));
+
+    if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
+        let venv_path = PathBuf::from(virtual_env);
+        candidates.push(venv_path.join("Scripts").join("python.exe"));
+        candidates.push(venv_path.join("Scripts").join("python3.exe"));
+        candidates.push(venv_path.join("bin").join("python3"));
+        candidates.push(venv_path.join("bin").join("python"));
+    }
+
+    let mut tried: Vec<String> = Vec::new();
+    for candidate in candidates {
+        tried.push(candidate.to_string_lossy().to_string());
+        if candidate.exists() {
+          let canonical = candidate.canonicalize().unwrap_or(candidate);
+          return Ok((strip_windows_extended_prefix(canonical).to_string_lossy().to_string(), tried));
+        }
+    }
+
+    let fallback_names = ["python3", "python", "/usr/bin/python3", "py"];
+    for program in fallback_names {
+        tried.push(program.to_string());
+    }
+
+    Err(format!("No se encontró un intérprete de Python válido. Rutas/alias intentados: {}", tried.join(" | ")))
+}
+
 #[tauri::command]
 fn run_yalex_bridge(workspace_root: String, payload_json: String) -> Result<String, String> {
     let script = resolve_bridge_script(&workspace_root)?;
@@ -273,25 +335,17 @@ fn run_yalex_bridge(workspace_root: String, payload_json: String) -> Result<Stri
         .ok_or_else(|| "Ruta de bridge inválida".to_string())?;
     let normalized_payload = normalize_payload_json(&payload_json)?;
 
-    let candidates: &[(&str, &[&str])] = &[
-        ("python3", &[script_str]),
-        ("python", &[script_str]),
-        ("/usr/bin/python3", &[script_str]),
-        ("py", &["-3", script_str]),
-    ];
+    let (python_path, tried) = resolve_python_executable(&workspace_root)?;
 
-    let mut last_error = String::new();
-    for (program, args) in candidates {
-        match run_python_command(program, args, &normalized_payload) {
-            Ok(output) => return Ok(output),
-            Err(error) => last_error = error,
-        }
+    match run_python_command(&python_path, &[script_str], &normalized_payload) {
+        Ok(output) => Ok(output),
+        Err(BridgeCommandError::ProgramNotFound(error)) => Err(format!(
+            "No se pudo iniciar Python para el bridge. Intentados: {}. Detalle: {}",
+            tried.join(" | "),
+            error
+        )),
+        Err(BridgeCommandError::ExecutionFailed(error)) => Err(error),
     }
-
-    Err(format!(
-        "No se encontró Python en el sistema. Intentados: python, python3, py. Último error: {}",
-        last_error
-    ))
 }
 
 pub fn run() {
@@ -304,6 +358,7 @@ pub fn run() {
             write_text_file,
             create_directory,
             pick_directory,
+            pick_file,
             copy_file,
             move_file,
             delete_file,

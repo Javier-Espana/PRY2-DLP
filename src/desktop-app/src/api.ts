@@ -134,6 +134,10 @@ export async function pickDirectory(): Promise<string | null> {
   return invokeTauri("pick_directory", undefined, { timeoutMs: null });
 }
 
+export async function pickFile(): Promise<string | null> {
+  return invokeTauri("pick_file", undefined, { timeoutMs: null });
+}
+
 export async function copyFile(src: string, dest: string): Promise<void> {
   await invokeTauri("copy_file", { src, dest });
 }

@@ -13,6 +13,7 @@ import {
   isTauriRuntime,
   listEntries,
   pickDirectory,
+  pickFile,
   readTextFile,
   runYalex,
   writeTextFile,
@@ -464,7 +465,7 @@ function parseSavedSizes(raw: string | null): PanelSizes | null {
     }
 
     return {
-      sidebarWidth: clamp(parsed.sidebarWidth, 220, 520),
+      sidebarWidth: clamp(parsed.sidebarWidth, 260, 560),
       rightPanelWidth: clamp(parsed.rightPanelWidth, 260, 560),
       resultPanelHeight: clamp(parsed.resultPanelHeight, 160, 500),
       outputPanelHeight: clamp(parsed.outputPanelHeight, 120, 440),
@@ -580,6 +581,7 @@ function registerEditorTheme(monaco: Monaco) {
 
 export function App() {
   const workbenchSplitRef = useRef<HTMLDivElement | null>(null);
+  const outputLogRef = useRef<HTMLDivElement | null>(null);
   const restoredSizes = useMemo(
     () =>
       parseSavedSizes(
@@ -616,9 +618,10 @@ export function App() {
   const [inputFilePath, setInputFilePath] = useState<string>("");
   const [generateOutputPath, setGenerateOutputPath] = useState<string>("");
   const [isRunningAction, setIsRunningAction] = useState<boolean>(false);
+  const [leftSidebarView, setLeftSidebarView] = useState<"explorer" | "pipeline" | "results">("explorer");
   const [isInitializing, setIsInitializing] = useState<boolean>(true); // Show loading state while Tauri initializes
   const [initError, setInitError] = useState<string>(""); // Track initialization errors
-  const [sidebarWidth, setSidebarWidth] = useState<number>(restoredSizes?.sidebarWidth ?? 290);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(restoredSizes?.sidebarWidth ?? 340);
   const [rightPanelWidth, setRightPanelWidth] = useState<number>(
     restoredSizes?.rightPanelWidth ?? 340
   );
@@ -1427,6 +1430,24 @@ export function App() {
     setOutput((prev) => [...prev, { ts: nowTime(), type, text }]);
   }
 
+  function enrichBridgeErrorMessage(raw: string): string {
+    const msg = raw.trim();
+    const ruleAtStartError =
+      msg.includes("Se esperaba 'rule' en la posición 0") ||
+      msg.includes("Se esperaba 'rule' en la posici") ||
+      msg.includes("Se esperaba 'rule' en la posicion 0");
+
+    if (ruleAtStartError) {
+      return (
+        `${msg}. ` +
+        "Tip: el archivo .yal seleccionado no parece usar el formato esperado por este parser. " +
+        "Prueba con un spec del formato 'rule tokens = ...' (por ejemplo en manual_cases/yal)."
+      );
+    }
+
+    return msg;
+  }
+
   async function loadDir(path: string) {
     try {
       const nodes = await listEntries(path);
@@ -1661,7 +1682,7 @@ export function App() {
 
     const parsed = response as { ok: boolean; result?: unknown; error?: string };
     if (!parsed.ok) {
-      pushOutput("error", parsed.error || "Error desconocido en backend.");
+      pushOutput("error", enrichBridgeErrorMessage(parsed.error || "Error desconocido en backend."));
       return false;
     }
 
@@ -1670,6 +1691,7 @@ export function App() {
     setActionResults((prev) => ({ ...prev, [action]: formatted }));
     setActionResultObjects((prev) => ({ ...prev, [action]: parsed.result }));
     setActiveResultAction(action);
+    setLeftSidebarView("results");
     pushOutput("ok", `${getActionLabel(action)} finalizado correctamente.`);
     return true;
   }
@@ -1876,7 +1898,7 @@ export function App() {
       const dy = event.clientY - activeResize.startY;
 
       if (activeResize.target === "sidebar") {
-        const nextWidth = Math.min(520, Math.max(220, activeResize.startSidebarWidth + dx));
+        const nextWidth = Math.min(560, Math.max(260, activeResize.startSidebarWidth + dx));
         setSidebarWidth(nextWidth);
         return;
       }
@@ -1962,28 +1984,35 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [activeTab, tabs]);
 
+  // Auto-scroll output log to bottom only if user is already at the bottom
+  useEffect(() => {
+    if (!outputLogRef.current) return;
+
+    const container = outputLogRef.current;
+    // Always scroll to the bottom after new content is added
+    // This is checked immediately, then again after a small delay
+    const scrollToBottom = () => {
+      container.scrollTop = container.scrollHeight;
+    };
+
+    scrollToBottom();
+    const timeout = setTimeout(scrollToBottom, 50);
+    return () => clearTimeout(timeout);
+  }, [output]);
+
+  const pipelineStatus = isRunningAction ? "running" : "idle";
+  const pipelineStatusLabel = isRunningAction ? "Procesando" : "Listo";
+  const explorerItemCount = workspaceRoot ? Object.values(treeMap).flat().length : 0;
+  const resultSummaryLabel = activeResultAction ? getActionLabel(activeResultAction) : "Sin etapa";
+
   return (
     <>
       {isInitializing && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#0D1B2A",
-          zIndex: 9999,
-          color: "#DBE4FF",
-          fontFamily: "monospace",
-        }}>
-          <div style={{ textAlign: "center" }}>
+        <div className="initializing-overlay">
+          <div className="init-content">
             <h2>Inicializando YALex Studio...</h2>
             {initError && (
-              <div style={{ color: "#FF6B6B", marginTop: "20px", maxWidth: "500px", wordBreak: "break-word" }}>
+              <div className="init-error">
                 <p><strong>Error:</strong></p>
                 <p>{initError}</p>
               </div>
@@ -1991,12 +2020,19 @@ export function App() {
           </div>
         </div>
       )}
-    <div className="shell" style={{ gridTemplateRows: `44px 1fr 6px ${outputPanelHeight}px` }}>
+    <div className="shell" style={{ ['--output-panel-height' as any]: `${outputPanelHeight}px` }}>
       <header className="topbar">
-        <h1>YALex Studio</h1>
-        <div className="topbar-actions">
+        <div className="topbar-brand">
+          <h1>YALex Studio</h1>
+          <span className="topbar-subtitle">Editor + Pipeline</span>
+        </div>
+        <div className="topbar-right">
+          <span className={`status-chip ${pipelineStatus}`}>
+            {pipelineStatusLabel}
+          </span>
+          <div className="topbar-actions">
           <button
-            className="topbar-action-btn"
+            className="topbar-action-btn btn"
             type="button"
             onClick={(e) => {
               e.preventDefault();
@@ -2013,72 +2049,326 @@ export function App() {
             Guardar
           </button>
         </div>
+        </div>
       </header>
 
       <main
         className="workspace"
-        style={{ gridTemplateColumns: `${sidebarWidth}px 6px 1fr` }}
+        style={{ gridTemplateColumns: `52px ${sidebarWidth}px 6px 1fr` }}
       >
-        <aside className="sidebar">
-          <div className="panel-title">
-            <span>Explorer</span>
-            <div className="panel-title-actions">
-              <button
-                title="Abrir carpeta"
-                aria-label="Abrir carpeta"
-                onClick={() => void openWorkspaceRootFromDialog()}
-              >
-                ≡
-              </button>
-              <button
-                title="Refrescar"
-                aria-label="Refrescar"
-                onClick={() => void refreshExplorerRoot()}
-              >
-                ↻
-              </button>
-              <button
-                title="Nuevo archivo"
-                aria-label="Nuevo archivo"
-                onClick={() => void startInlineCreate("file")}
-              >
-                <span
-                  className="panel-icon"
-                  style={{
-                    WebkitMaskImage: `url(${filePlusIcon})`,
-                    maskImage: `url(${filePlusIcon})`,
-                  }}
-                />
-              </button>
-              <button
-                title="Nueva carpeta"
-                aria-label="Nueva carpeta"
-                onClick={() => void startInlineCreate("folder")}
-              >
-                <span
-                  className="panel-icon"
-                  style={{
-                    WebkitMaskImage: `url(${folderPlusIcon})`,
-                    maskImage: `url(${folderPlusIcon})`,
-                  }}
-                />
-              </button>
+        <nav className="activity-bar" aria-label="Navegación lateral">
+          <button
+            type="button"
+            className={`activity-btn ${leftSidebarView === "explorer" ? "active" : ""}`}
+            onClick={() => setLeftSidebarView("explorer")}
+            title="Explorer"
+            aria-label="Explorer"
+          >
+            <span className="activity-icon activity-icon-explorer" aria-hidden="true" />
+            <span className="activity-label">Explorer</span>
+          </button>
+          <button
+            type="button"
+            className={`activity-btn ${leftSidebarView === "pipeline" ? "active" : ""}`}
+            onClick={() => setLeftSidebarView("pipeline")}
+            title="Pipeline"
+            aria-label="Pipeline"
+          >
+            <span className="activity-icon activity-icon-pipeline" aria-hidden="true" />
+            <span className="activity-label">Pipeline</span>
+          </button>
+          <button
+            type="button"
+            className={`activity-btn ${leftSidebarView === "results" ? "active" : ""}`}
+            onClick={() => setLeftSidebarView("results")}
+            title="Resultados"
+            aria-label="Resultados"
+          >
+            <span className="activity-icon activity-icon-results" aria-hidden="true" />
+            <span className="activity-label">Resultados</span>
+          </button>
+        </nav>
+
+        <aside className="sidepanel">
+          {leftSidebarView === "explorer" && (
+            <>
+              <div className="panel-hero">
+                <div className="panel-hero-copy">
+                  <span className="panel-hero-kicker">Workspace</span>
+                  <h2>Explorer</h2>
+                  <p>Abre, crea y navega tus archivos YALex desde una vista compacta.</p>
+                </div>
+                <div className="panel-hero-badge">
+                  <strong>{explorerItemCount}</strong>
+                  <span>items</span>
+                </div>
+              </div>
+              <div className="panel-title">
+                <span>Explorer</span>
+                <div className="panel-title-actions">
+                  <button
+                    title="Abrir carpeta"
+                    aria-label="Abrir carpeta"
+                    onClick={() => void openWorkspaceRootFromDialog()}
+                  >
+                    ≡
+                  </button>
+                  <button
+                    title="Refrescar"
+                    aria-label="Refrescar"
+                    onClick={() => void refreshExplorerRoot()}
+                  >
+                    ↻
+                  </button>
+                  <button
+                    title="Nuevo archivo"
+                    aria-label="Nuevo archivo"
+                    onClick={() => void startInlineCreate("file")}
+                  >
+                    <span
+                      className="panel-icon"
+                      style={{
+                        WebkitMaskImage: `url(${filePlusIcon})`,
+                        maskImage: `url(${filePlusIcon})`,
+                      }}
+                    />
+                  </button>
+                  <button
+                    title="Nueva carpeta"
+                    aria-label="Nueva carpeta"
+                    onClick={() => void startInlineCreate("folder")}
+                  >
+                    <span
+                      className="panel-icon"
+                      style={{
+                        WebkitMaskImage: `url(${folderPlusIcon})`,
+                        maskImage: `url(${folderPlusIcon})`,
+                      }}
+                    />
+                  </button>
+                </div>
+              </div>
+              <div className="path-row" title={workspaceRoot}>
+                <span className="path-row-name">{getPathBaseName(workspaceRoot)}</span>
+                <span className="path-row-hint">{workspaceRoot || "Sin carpeta"}</span>
+              </div>
+              <div className="file-list">
+                {workspaceRoot && renderTree(workspaceRoot, 0)}
+              </div>
+            </>
+          )}
+
+          {leftSidebarView === "pipeline" && (
+            <div className="command-panel">
+              <div className="panel-hero">
+                <div className="panel-hero-copy">
+                  <span className="panel-hero-kicker">Ejecución</span>
+                  <h2>Pipeline</h2>
+                  <p>Configura el `.yal`, el input y el output antes de ejecutar.</p>
+                </div>
+                <div className="panel-hero-badge">
+                  <strong>{pipelineStatusLabel}</strong>
+                  <span>estado</span>
+                </div>
+              </div>
+              <div className="panel-title panel-title-tight">
+                <span>Pipeline YALex</span>
+                <span className={`status-chip ${pipelineStatus}`}>{pipelineStatusLabel}</span>
+              </div>
+
+              <div className="command-scroll">
+                <section className="command-section">
+                  <h3 className="section-title">Archivos de trabajo</h3>
+
+                  <label className="field">
+                    <span className="field-label">Archivo .yal</span>
+                    <input
+                      value={yalFilePath}
+                      onChange={(event) => setYalFilePath(event.target.value)}
+                      placeholder="Ruta al archivo .yal"
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span className="field-label">Input (.txt)</span>
+                    <input
+                      value={inputFilePath}
+                      onChange={(event) => setInputFilePath(event.target.value)}
+                      placeholder="Ruta del texto de entrada"
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span className="field-label">Output lexer</span>
+                    <input
+                      value={generateOutputPath}
+                      onChange={(event) => setGenerateOutputPath(event.target.value)}
+                      placeholder="Ruta del lexer generado"
+                    />
+                  </label>
+                </section>
+
+                <section className="command-section">
+                  <h3 className="section-title">Acciones</h3>
+                  <div className="command-actions">
+                    <button
+                      className="run-all-btn btn btn-primary"
+                      onClick={() => void runFullPipeline()}
+                      disabled={isRunningAction}
+                    >
+                      {isRunningAction ? "Ejecutando pipeline..." : "Ejecutar pipeline"}
+                    </button>
+
+                    <button
+                      className="run-check-btn btn"
+                      onClick={() => void runGeneratedLexerProgram()}
+                      disabled={isRunningAction}
+                    >
+                      Ejecutar lexer generado
+                    </button>
+                  </div>
+
+                  <p className="command-hint">
+                    Flujo recomendado: Spec → AST → Construcción Directa → DFA → Tokenizar →
+                    Generar Lexer.
+                  </p>
+                </section>
+
+                {validationChecks.length > 0 && (
+                  <section className="validation-panel">
+                    <div className="validation-header">
+                      <strong>{`Validación ${passedChecks}/${totalChecks}`}</strong>
+                      <span>{validationRunAt ? `@ ${validationRunAt}` : ""}</span>
+                    </div>
+                    <div className="validation-list">
+                      {validationChecks.map((check) => (
+                        <div key={check.id} className={`validation-item ${check.ok ? "ok" : "fail"}`}>
+                          <span className="validation-item-title">{check.label}</span>
+                          <span className="validation-item-detail">{check.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="path-row" title={workspaceRoot}>
-            <span className="path-row-name">{getPathBaseName(workspaceRoot)}</span>
-            <span className="path-row-hint">{workspaceRoot || "Sin carpeta"}</span>
-          </div>
-          <div className="file-list">
-            {workspaceRoot && renderTree(workspaceRoot, 0)}
-          </div>
+          )}
+
+          {leftSidebarView === "results" && (
+            <section className="result-panel sidepanel-results">
+              <div className="panel-hero panel-hero-result">
+                <div className="panel-hero-copy">
+                  <span className="panel-hero-kicker">Salida</span>
+                  <h2>Resultados</h2>
+                  <p>Alterna entre JSON, código y grafo sin perder el contexto del pipeline.</p>
+                </div>
+                <div className="panel-hero-badge">
+                  <strong>{resultSummaryLabel}</strong>
+                  <span>vista</span>
+                </div>
+              </div>
+              <div className="result-header">
+                <div className="result-header-top">
+                  <div className="panel-title panel-title-tight">Resultado</div>
+                  <span className="result-state">
+                    {activeResultAction ? getActionLabel(activeResultAction) : "Sin etapa seleccionada"}
+                  </span>
+                </div>
+                {visibleResultActions.length > 0 && (
+                  <div className="result-tabs" role="tablist" aria-label="Etapas del pipeline">
+                    {visibleResultActions.map((action) => {
+                      const isActive = action === activeResultAction;
+                      return (
+                        <button
+                          key={action}
+                          role="tab"
+                          type="button"
+                          className={`result-tab-btn ${isActive ? "active" : ""}`}
+                          aria-selected={isActive}
+                          onClick={() => setActiveResultAction(action)}
+                        >
+                          {getActionLabel(action)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="result-view-toggle">
+                  <button
+                    type="button"
+                    className={`result-view-btn ${resultViewMode === "json" ? "active" : ""}`}
+                    onClick={() => setResultViewMode("json")}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    type="button"
+                    className={`result-view-btn ${resultViewMode === "graph" ? "active" : ""}`}
+                    onClick={() => setResultViewMode("graph")}
+                    disabled={!canRenderGraph}
+                  >
+                    Gráfico
+                  </button>
+                  <button
+                    type="button"
+                    className={`result-view-btn ${resultViewMode === "code" ? "active" : ""}`}
+                    onClick={() => setResultViewMode("code")}
+                    disabled={!canRenderCode}
+                  >
+                    Código Python
+                  </button>
+                  {resultViewMode === "graph" && activeResultAction === "dfa" && (
+                    <>
+                      <button
+                        type="button"
+                        className={`result-view-btn ${dfaLabelDensity === "compact" ? "active" : ""}`}
+                        onClick={() => setDfaLabelDensity("compact")}
+                      >
+                        Compacto
+                      </button>
+                      <button
+                        type="button"
+                        className={`result-view-btn ${dfaLabelDensity === "detailed" ? "active" : ""}`}
+                        onClick={() => setDfaLabelDensity("detailed")}
+                      >
+                        Detallado
+                      </button>
+                      <button
+                        type="button"
+                        className={`result-view-btn ${dfaEdgeLabelMode === "ranges" ? "active" : ""}`}
+                        onClick={() => setDfaEdgeLabelMode("ranges")}
+                      >
+                        Rangos
+                      </button>
+                      <button
+                        type="button"
+                        className={`result-view-btn ${dfaEdgeLabelMode === "aliases" ? "active" : ""}`}
+                        onClick={() => setDfaEdgeLabelMode("aliases")}
+                      >
+                        Alias
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {resultViewMode === "graph" && canRenderGraph ? (
+                <div className="result-graph-view">{renderGraphView()}</div>
+              ) : resultViewMode === "code" && canRenderCode ? (
+                <pre className="result-view">
+                  {isLoadingGeneratedCode ? "Cargando código generado..." : generatedPythonCode}
+                </pre>
+              ) : (
+                <pre className="result-view">{activeResultText}</pre>
+              )}
+            </section>
+          )}
         </aside>
 
         <div
           className="splitter"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize explorer"
+          aria-label="Resize side panel"
           onMouseDown={(event) =>
             setResizeState({
               target: "sidebar",
@@ -2092,7 +2382,7 @@ export function App() {
           }
         />
 
-        <section className="editor-area">
+        <section className="editor-area editor-area-simple">
           <div className="tabs">
             {tabs.length === 0 ? (
               <span className="tabs-empty">Sin archivos abiertos</span>
@@ -2119,241 +2409,39 @@ export function App() {
             )}
           </div>
 
-          <div
-            className="workbench-split"
-            ref={workbenchSplitRef}
-            style={{ gridTemplateColumns: `1fr 6px ${rightPanelWidth}px` }}
-          >
-            <div className="editor-shell">
-              {activeTab ? (
-                <Editor
-                  beforeMount={registerEditorTheme}
-                  language={languageFromFileName(activeTab.name)}
-                  value={activeTab.content}
-                  onChange={(value: string | undefined) => updateActiveTabContent(value ?? "")}
-                  theme="yalex-dark"
-                  options={{
-                    fontSize: 14,
-                    fontFamily: "Cascadia Code, Consolas, monospace",
-                    minimap: { enabled: false },
-                    automaticLayout: true,
-                    tabSize: 2,
-                    insertSpaces: true,
-                    lineNumbers: "on",
-                    wordWrap: "on",
-                    smoothScrolling: true,
-                    scrollBeyondLastLine: false,
-                  }}
-                />
-              ) : (
-                <div className="editor-empty">
-                  <strong>Inicio rápido</strong>
-                  <br />
-                  1) Abre un archivo .yal desde el explorer.
-                  <br />
-                  2) Selecciona la acción en el panel lateral derecho.
-                  <br />
-                  3) Ejecuta y revisa el resultado.
-                </div>
-              )}
-            </div>
-
-            <div
-              className="splitter splitter-inner-vertical"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize pipeline"
-              onMouseDown={(event) =>
-                setResizeState({
-                  target: "rightPanel",
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  startSidebarWidth: sidebarWidth,
-                  startRightPanelWidth: rightPanelWidth,
-                  startResultPanelHeight: resultPanelHeight,
-                  startOutputPanelHeight: outputPanelHeight,
-                })
-              }
-            />
-
-            <aside className="command-panel">
-              <div className="panel-title panel-title-tight">Pipeline</div>
-
-              <label className="field">
-                Archivo .yal
-                <input
-                  value={yalFilePath}
-                  onChange={(event) => setYalFilePath(event.target.value)}
-                  placeholder="Ruta al archivo .yal"
-                />
-              </label>
-
-              <label className="field">
-                Input (.txt)
-                <input
-                  value={inputFilePath}
-                  onChange={(event) => setInputFilePath(event.target.value)}
-                  placeholder="Ruta del texto de entrada"
-                />
-              </label>
-
-              <label className="field">
-                Output lexer
-                <input
-                  value={generateOutputPath}
-                  onChange={(event) => setGenerateOutputPath(event.target.value)}
-                  placeholder="Ruta del lexer generado"
-                />
-              </label>
-
-              <button
-                className="run-all-btn"
-                onClick={() => void runFullPipeline()}
-                disabled={isRunningAction}
-              >
-                {isRunningAction ? "Ejecutando..." : "Ejecutar"}
-              </button>
-
-              <button
-                className="run-check-btn"
-                onClick={() => void runGeneratedLexerProgram()}
-                disabled={isRunningAction}
-              >
-                Ejecutar lexer generado
-              </button>
-
-              {validationChecks.length > 0 && (
-                <section className="validation-panel">
-                  <div className="validation-header">
-                    <strong>{`Validación ${passedChecks}/${totalChecks}`}</strong>
-                    <span>{validationRunAt ? `@ ${validationRunAt}` : ""}</span>
-                  </div>
-                  <div className="validation-list">
-                    {validationChecks.map((check) => (
-                      <div key={check.id} className={`validation-item ${check.ok ? "ok" : "fail"}`}>
-                        <span className="validation-item-title">{check.label}</span>
-                        <span className="validation-item-detail">{check.detail}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              <p className="command-hint">
-                Ejecuta secuencialmente: Spec → AST → Construcción Directa → DFA → Tokenizar →
-                Generar Lexer.
-              </p>
-            </aside>
-          </div>
-
-          <div
-            className="splitter splitter-horizontal"
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize result"
-            onMouseDown={(event) =>
-              setResizeState({
-                target: "resultPanel",
-                startX: event.clientX,
-                startY: event.clientY,
-                startSidebarWidth: sidebarWidth,
-                startRightPanelWidth: rightPanelWidth,
-                startResultPanelHeight: resultPanelHeight,
-                startOutputPanelHeight: outputPanelHeight,
-              })
-            }
-          />
-
-          <section className="result-panel" style={{ height: `${resultPanelHeight}px` }}>
-            <div className="result-header">
-              <div className="panel-title panel-title-tight">Resultado</div>
-              {visibleResultActions.length > 0 && (
-                <div className="result-tabs" role="tablist" aria-label="Etapas del pipeline">
-                  {visibleResultActions.map((action) => {
-                    const isActive = action === activeResultAction;
-                    return (
-                      <button
-                        key={action}
-                        role="tab"
-                        type="button"
-                        className={`result-tab-btn ${isActive ? "active" : ""}`}
-                        aria-selected={isActive}
-                        onClick={() => setActiveResultAction(action)}
-                      >
-                        {getActionLabel(action)}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="result-view-toggle">
-                <button
-                  type="button"
-                  className={`result-view-btn ${resultViewMode === "json" ? "active" : ""}`}
-                  onClick={() => setResultViewMode("json")}
-                >
-                  JSON
-                </button>
-                <button
-                  type="button"
-                  className={`result-view-btn ${resultViewMode === "graph" ? "active" : ""}`}
-                  onClick={() => setResultViewMode("graph")}
-                  disabled={!canRenderGraph}
-                >
-                  Gráfico
-                </button>
-                <button
-                  type="button"
-                  className={`result-view-btn ${resultViewMode === "code" ? "active" : ""}`}
-                  onClick={() => setResultViewMode("code")}
-                  disabled={!canRenderCode}
-                >
-                  Código Python
-                </button>
-                {resultViewMode === "graph" && activeResultAction === "dfa" && (
-                  <>
-                    <button
-                      type="button"
-                      className={`result-view-btn ${dfaLabelDensity === "compact" ? "active" : ""}`}
-                      onClick={() => setDfaLabelDensity("compact")}
-                    >
-                      Compacto
-                    </button>
-                    <button
-                      type="button"
-                      className={`result-view-btn ${dfaLabelDensity === "detailed" ? "active" : ""}`}
-                      onClick={() => setDfaLabelDensity("detailed")}
-                    >
-                      Detallado
-                    </button>
-                    <button
-                      type="button"
-                      className={`result-view-btn ${dfaEdgeLabelMode === "ranges" ? "active" : ""}`}
-                      onClick={() => setDfaEdgeLabelMode("ranges")}
-                    >
-                      Rangos
-                    </button>
-                    <button
-                      type="button"
-                      className={`result-view-btn ${dfaEdgeLabelMode === "aliases" ? "active" : ""}`}
-                      onClick={() => setDfaEdgeLabelMode("aliases")}
-                    >
-                      Alias
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            {resultViewMode === "graph" && canRenderGraph ? (
-              <div className="result-graph-view">{renderGraphView()}</div>
-            ) : resultViewMode === "code" && canRenderCode ? (
-              <pre className="result-view">
-                {isLoadingGeneratedCode ? "Cargando código generado..." : generatedPythonCode}
-              </pre>
+          <div className="editor-shell">
+            {activeTab ? (
+              <Editor
+                beforeMount={registerEditorTheme}
+                language={languageFromFileName(activeTab.name)}
+                value={activeTab.content}
+                onChange={(value: string | undefined) => updateActiveTabContent(value ?? "")}
+                theme="yalex-dark"
+                options={{
+                  fontSize: 14,
+                  fontFamily: "Cascadia Code, Consolas, monospace",
+                  minimap: { enabled: false },
+                  automaticLayout: true,
+                  tabSize: 2,
+                  insertSpaces: true,
+                  lineNumbers: "on",
+                  wordWrap: "on",
+                  smoothScrolling: true,
+                  scrollBeyondLastLine: false,
+                }}
+              />
             ) : (
-              <pre className="result-view">{activeResultText}</pre>
+              <div className="editor-empty">
+                <strong>Inicio rápido</strong>
+                <br />
+                1) Ve a Explorer en la barra lateral izquierda y abre un archivo .yal.
+                <br />
+                2) Usa Pipeline para ejecutar el flujo.
+                <br />
+                3) Consulta Resultados y Output para validar.
+              </div>
             )}
-          </section>
+          </div>
         </section>
       </main>
 
@@ -2376,8 +2464,11 @@ export function App() {
       />
 
       <section className="output-panel">
-        <div className="panel-title">Output</div>
-        <div className="output-log">
+        <div className="panel-title output-header">
+          <span>Output</span>
+          <span className="output-counter">{output.length} eventos</span>
+        </div>
+        <div className="output-log" ref={outputLogRef}>
           {output.map((line, index) => (
             <div key={`${line.ts}-${index}`} className={`out-line ${line.type}`}>
               [{line.ts}] {line.text}

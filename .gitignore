@@ -1,0 +1,4 @@
+src/desktop-app/dist
+src/desktop-app/node_modules
+src/desktop-app/src-tauri/target
+__pycache__

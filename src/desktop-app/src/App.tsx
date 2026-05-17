@@ -18,7 +18,7 @@ import {
   runYalex,
   writeTextFile,
 } from "./api";
-import type { FileNode, OpenTab, YalexAction } from "./types";
+import type { FileNode, OpenTab, YalexAction, YaparAction, AnyAction, YaparSpecResult, YaparAutomatonResult, YaparTableResult, YaparParseResult } from "./types";
 
 loader.config({ monaco });
 
@@ -41,10 +41,23 @@ const YAL_ACTIONS: Array<{ id: YalexAction; label: string }> = [
   { id: "generate", label: "Generar Lexer" },
 ];
 
-const FULL_PIPELINE_ACTIONS: YalexAction[] = YAL_ACTIONS.map((action) => action.id);
+const YAPAR_ACTIONS: Array<{ id: YaparAction; label: string }> = [
+  { id: "yaparSpec", label: "Especificación" },
+  { id: "yaparAutomaton", label: "Autómata LR(0)" },
+  { id: "yaparTable", label: "Tabla SLR" },
+  { id: "yaparParse", label: "Parsear" },
+  { id: "yaparGenerate", label: "Generar Parser" },
+];
 
-function getActionLabel(action: YalexAction): string {
-  return YAL_ACTIONS.find((item) => item.id === action)?.label ?? action;
+const FULL_PIPELINE_ACTIONS: YalexAction[] = YAL_ACTIONS.map((action) => action.id);
+const YAPAR_PIPELINE_ACTIONS: YaparAction[] = YAPAR_ACTIONS.map((action) => action.id);
+
+function getActionLabel(action: AnyAction): string {
+  const yalMatch = YAL_ACTIONS.find((item) => item.id === action);
+  if (yalMatch) return yalMatch.label;
+  const yaparMatch = YAPAR_ACTIONS.find((item) => item.id === action);
+  if (yaparMatch) return yaparMatch.label;
+  return action;
 }
 
 const PANEL_STORAGE_KEY = "yalex-studio.panel-sizes.v1";
@@ -600,11 +613,12 @@ export function App() {
 
   const [output, setOutput] = useState<OutputItem[]>([]);
   const [latestResult, setLatestResult] = useState<string>("Sin resultados todavía.");
-  const [actionResults, setActionResults] = useState<Partial<Record<YalexAction, string>>>({});
+  const [activeWorkflow, setActiveWorkflow] = useState<"yalex" | "yapar">("yalex");
+  const [actionResults, setActionResults] = useState<Partial<Record<AnyAction, string>>>({});
   const [actionResultObjects, setActionResultObjects] = useState<
-    Partial<Record<YalexAction, unknown>>
+    Partial<Record<AnyAction, unknown>>
   >({});
-  const [activeResultAction, setActiveResultAction] = useState<YalexAction | null>(null);
+  const [activeResultAction, setActiveResultAction] = useState<AnyAction | null>(null);
   const [resultViewMode, setResultViewMode] = useState<"json" | "graph" | "code">("graph");
   const [generatedPythonCode, setGeneratedPythonCode] = useState<string>("");
   const [isLoadingGeneratedCode, setIsLoadingGeneratedCode] = useState<boolean>(false);
@@ -615,8 +629,11 @@ export function App() {
   const [validationRunAt, setValidationRunAt] = useState<string>("");
 
   const [yalFilePath, setYalFilePath] = useState<string>("");
+  const [yaparFilePath, setYaparFilePath] = useState<string>("");
   const [inputFilePath, setInputFilePath] = useState<string>("");
   const [generateOutputPath, setGenerateOutputPath] = useState<string>("");
+  const [generateParserOutputPath, setGenerateParserOutputPath] = useState<string>("");
+  const [yaparSelectedStateId, setYaparSelectedStateId] = useState<number | null>(null);
   const [isRunningAction, setIsRunningAction] = useState<boolean>(false);
   const [leftSidebarView, setLeftSidebarView] = useState<"explorer" | "pipeline" | "results">("explorer");
   const [isInitializing, setIsInitializing] = useState<boolean>(true); // Show loading state while Tauri initializes
@@ -652,8 +669,11 @@ export function App() {
   );
 
   const visibleResultActions = useMemo(
-    () => FULL_PIPELINE_ACTIONS.filter((action) => Boolean(actionResults[action])),
-    [actionResults]
+    () => {
+      const allActions = activeWorkflow === "yalex" ? FULL_PIPELINE_ACTIONS : YAPAR_PIPELINE_ACTIONS;
+      return allActions.filter((action) => Boolean(actionResults[action]));
+    },
+    [actionResults, activeWorkflow]
   );
 
   const activeResultText =
@@ -663,34 +683,52 @@ export function App() {
 
   const activeResultObject = activeResultAction ? actionResultObjects[activeResultAction] : null;
 
-  const graphSupportedActions: YalexAction[] = ["ast", "dfa", "combinedNfa"];
+  const graphSupportedActions: AnyAction[] = ["ast", "dfa", "combinedNfa", "yaparAutomaton"];
   const canRenderGraph = Boolean(
     activeResultAction && graphSupportedActions.includes(activeResultAction) && activeResultObject
   );
   const generateRoot = activeResultAction === "generate" ? asObject(activeResultObject) : null;
   const generatedOutputPath = generateRoot ? asString(generateRoot.outputPath) : null;
+
+  const yaparGenerateRoot = activeResultAction === "yaparGenerate" ? asObject(activeResultObject) : null;
+  const yaparGeneratedOutputPath = yaparGenerateRoot ? asString(yaparGenerateRoot.outputPath) : null;
+
   const generatedCodePathCandidates = useMemo(() => {
-    if (activeResultAction !== "generate") {
+    if (activeResultAction !== "generate" && activeResultAction !== "yaparGenerate") {
       return [] as string[];
     }
 
     const candidates: string[] = [];
-    if (generatedOutputPath?.trim()) {
-      candidates.push(generatedOutputPath.trim());
-    }
-    if (generateOutputPath.trim()) {
-      candidates.push(generateOutputPath.trim());
-    }
-
-    const sourcePath = generatedOutputPath?.trim() || generateOutputPath.trim();
-    const baseName = sourcePath ? getPathBaseName(sourcePath) : "";
-    if (workspaceRoot && baseName) {
-      candidates.push(joinPath(workspaceRoot, "output", baseName));
-      candidates.push(joinPath(workspaceRoot, baseName));
+    if (activeResultAction === "generate") {
+      if (generatedOutputPath?.trim()) {
+        candidates.push(generatedOutputPath.trim());
+      }
+      if (generateOutputPath.trim()) {
+        candidates.push(generateOutputPath.trim());
+      }
+      const sourcePath = generatedOutputPath?.trim() || generateOutputPath.trim();
+      const baseName = sourcePath ? getPathBaseName(sourcePath) : "";
+      if (workspaceRoot && baseName) {
+        candidates.push(joinPath(workspaceRoot, "output", baseName));
+        candidates.push(joinPath(workspaceRoot, baseName));
+      }
+    } else {
+      if (yaparGeneratedOutputPath?.trim()) {
+        candidates.push(yaparGeneratedOutputPath.trim());
+      }
+      if (generateParserOutputPath.trim()) {
+        candidates.push(generateParserOutputPath.trim());
+      }
+      const sourcePath = yaparGeneratedOutputPath?.trim() || generateParserOutputPath.trim();
+      const baseName = sourcePath ? getPathBaseName(sourcePath) : "";
+      if (workspaceRoot && baseName) {
+        candidates.push(joinPath(workspaceRoot, "output", baseName));
+        candidates.push(joinPath(workspaceRoot, baseName));
+      }
     }
 
     return Array.from(new Set(candidates.filter(Boolean)));
-  }, [activeResultAction, generatedOutputPath, generateOutputPath, workspaceRoot]);
+  }, [activeResultAction, generatedOutputPath, generateOutputPath, yaparGeneratedOutputPath, generateParserOutputPath, workspaceRoot]);
   const canRenderCode = generatedCodePathCandidates.length > 0;
 
   const passedChecks = validationChecks.filter((check) => check.ok).length;
@@ -1366,13 +1404,22 @@ export function App() {
             {panel.nodes.map((node) => {
               const pos = positions.get(node.id);
               if (!pos) return null;
+              const isSelected = activeResultAction === "yaparAutomaton" && yaparSelectedStateId === Number(node.id);
               return (
-                <g key={node.id}>
+                <g
+                  key={node.id}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => {
+                    if (activeResultAction === "yaparAutomaton") {
+                      setYaparSelectedStateId(Number(node.id));
+                    }
+                  }}
+                >
                   <circle
                     cx={pos.x}
                     cy={pos.y}
                     r={nodeRadius}
-                    className={`graph-node ${node.isAccept ? "accept" : ""} ${node.isStart ? "start" : ""}`}
+                    className={`graph-node ${node.isAccept ? "accept" : ""} ${node.isStart ? "start" : ""} ${isSelected ? "selected" : ""}`}
                   />
                   {node.isAccept && <circle cx={pos.x} cy={pos.y} r={nodeRadius - 5} className="graph-node-accept" />}
                   <text x={pos.x} y={pos.y + 4} className="graph-node-label" textAnchor="middle">
@@ -1402,6 +1449,35 @@ export function App() {
     );
   }
 
+  function buildYaparAutomatonPanel(data: YaparAutomatonResult): GraphPanel {
+    const nodes = data.states.map((state) => {
+      const isStart = state.id === 0;
+      return {
+        id: String(state.id),
+        label: `S${state.id}`,
+        isStart,
+        isAccept: false,
+      };
+    });
+
+    const edges: GraphEdge[] = [];
+    data.states.forEach((state) => {
+      Object.entries(state.transitions).forEach(([symbol, targetId]) => {
+        edges.push({
+          from: String(state.id),
+          to: String(targetId),
+          label: symbol,
+        });
+      });
+    });
+
+    return {
+      title: "Autómata Canónico LR(0)",
+      nodes,
+      edges,
+    };
+  }
+
   function renderGraphView(): JSX.Element {
     if (!activeResultAction || !activeResultObject) {
       return <div className="graph-empty">Ejecuta una etapa para ver una visualización.</div>;
@@ -1423,7 +1499,210 @@ export function App() {
       return <div className="graph-panels">{panels.map((panel) => renderAutomatonSvg(panel))}</div>;
     }
 
+    if (activeResultAction === "yaparAutomaton") {
+      const parsed = activeResultObject as YaparAutomatonResult;
+      const panel = buildYaparAutomatonPanel(parsed);
+      return (
+        <div className="yapar-automaton-container">
+          <div className="yapar-graph-wrapper">
+            {renderAutomatonSvg(panel)}
+          </div>
+          <div className="yapar-items-sidebar card">
+            <h4 className="card-title">Items del Estado LR(0)</h4>
+            {yaparSelectedStateId === null ? (
+              <p className="hint">Haz clic en un estado para ver su conjunto de ítems canónicos.</p>
+            ) : (
+              <div>
+                <div className="selected-state-title">Estado S{yaparSelectedStateId}</div>
+                <ul className="yapar-item-list">
+                  {parsed.states.find(s => s.id === yaparSelectedStateId)?.items.map((item, idx) => (
+                    <li key={idx} className="yapar-item-entry">
+                      <code>{item}</code>
+                    </li>
+                  )) || <li className="hint">No hay items</li>}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     return <div className="graph-empty">Esta etapa no tiene visualización gráfica todavía.</div>;
+  }
+
+  function reprLexeme(lexeme: string): string {
+    if (lexeme === "\n") return "\\n";
+    if (lexeme === "\t") return "\\t";
+    if (lexeme === "\r") return "\\r";
+    if (lexeme === " ") return "\\s";
+    return lexeme;
+  }
+
+  function renderSlrTable(data: YaparTableResult): JSX.Element {
+    return (
+      <div className="slr-table-container">
+        <h4 className="card-title">Tabla de Análisis SLR (ACTION / GOTO)</h4>
+        <div className="slr-table-scroll">
+          <table className="slr-grid-table">
+            <thead>
+              <tr>
+                <th rowSpan={2} className="header-state">Estado</th>
+                <th colSpan={data.action_headers.length} className="header-action">ACTION</th>
+                <th colSpan={data.goto_headers.length} className="header-goto">GOTO</th>
+              </tr>
+              <tr>
+                {data.action_headers.map((h) => (
+                  <th key={`act-${h}`} className="sub-header-term">{h}</th>
+                ))}
+                {data.goto_headers.map((h) => (
+                  <th key={`goto-${h}`} className="sub-header-nonterm">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((row) => (
+                <tr key={`row-${row.state}`}>
+                  <td className="cell-state">S{row.state}</td>
+                  {data.action_headers.map((h) => {
+                    const action = row.action[h];
+                    if (!action) return <td key={`act-${row.state}-${h}`} className="cell-empty">-</td>;
+                    const [type, arg] = action;
+                    let display = "";
+                    let className = "";
+                    if (type === "shift") {
+                      display = `s${arg}`;
+                      className = "cell-shift";
+                    } else if (type === "reduce") {
+                      display = `r${arg}`;
+                      className = "cell-reduce";
+                    } else if (type === "accept") {
+                      display = "acc";
+                      className = "cell-accept";
+                    } else if (type === "error") {
+                      display = "err";
+                      className = "cell-error";
+                    }
+                    return (
+                      <td key={`act-${row.state}-${h}`} className={`cell-action ${className}`} title={`${type} ${arg}`}>
+                        {display}
+                      </td>
+                    );
+                  })}
+                  {data.goto_headers.map((h) => {
+                    const nextState = row.goto[h];
+                    if (nextState === undefined) return <td key={`goto-${row.state}-${h}`} className="cell-empty">-</td>;
+                    return (
+                      <td key={`goto-${row.state}-${h}`} className="cell-goto">
+                        {nextState}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {data.follow && Object.keys(data.follow).length > 0 && (
+          <div className="follow-sets-section card">
+            <h4 className="card-title">Conjuntos FOLLOW</h4>
+            <div className="follow-grid">
+              {Object.entries(data.follow).map(([nt, list]) => (
+                <div key={nt} className="follow-row">
+                  <span className="follow-nt">FOLLOW({nt})</span>
+                  <span className="follow-values">{`{ ${list.join(", ")} }`}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderParserTrace(data: YaparParseResult): JSX.Element {
+    if (data.errors && data.errors.length > 0) {
+      return (
+        <div className="parser-trace-error card">
+          <h4 className="card-title text-error">Errores detectados</h4>
+          <ul className="error-list">
+            {data.errors.map((err, idx) => (
+              <li key={idx} className="error-item">
+                {err}
+              </li>
+            ))}
+          </ul>
+          {data.tokens && data.tokens.length > 0 && (
+            <div className="tokens-section">
+              <h5>Tokens leídos por el Lexer:</h5>
+              <div className="tokens-compact-grid">
+                {data.tokens.map((t, idx) => (
+                  <span key={idx} className="token-badge" title={`L${t.line}:C${t.col}`}>
+                    <strong>{t.type}</strong>: {reprLexeme(t.lexeme)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="parser-trace-container">
+        <h4 className="card-title text-ok">✓ Análisis Sintáctico Exitoso</h4>
+        <div className="trace-summary-chips">
+          <span className="status-chip ok">Cadena aceptada</span>
+          <span className="status-chip info">{data.trace.length} pasos</span>
+          <span className="status-chip info">{data.tokens.length} tokens</span>
+        </div>
+
+        <h5 className="section-title">Secuencia de Acciones (Traza Shift/Reduce)</h5>
+        <div className="parser-trace-scroll">
+          <table className="parser-trace-table">
+            <thead>
+              <tr>
+                <th>Paso</th>
+                <th>Pila de Estados</th>
+                <th>Pila de Símbolos</th>
+                <th>Lookahead (Siguiente Token)</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.trace.map((step) => {
+                const isAccept = step.action === "accept" || step.action_arg.includes("Accept") || step.action_arg.includes("Aceptar");
+                const isShift = step.action === "shift";
+                const isReduce = step.action === "reduce";
+                const actionClass = isAccept ? "action-accept" : isShift ? "action-shift" : isReduce ? "action-reduce" : "";
+
+                return (
+                  <tr key={step.step}>
+                    <td className="cell-step">{step.step}</td>
+                    <td className="cell-stack">
+                      <code>{`[${step.state_stack.join(", ")}]`}</code>
+                    </td>
+                    <td className="cell-symbols">
+                      <code>{`[${step.symbol_stack.join(", ")}]`}</code>
+                    </td>
+                    <td className="cell-lookahead">
+                      <span className="token-name">{step.lookahead.type}</span>
+                      {step.lookahead.lexeme && (
+                        <span className="token-lexeme">{` (${reprLexeme(step.lookahead.lexeme)})`}</span>
+                      )}
+                    </td>
+                    <td className={`cell-action ${actionClass}`}>
+                      {step.action_arg}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   }
 
   function pushOutput(type: OutputItem["type"], text: string) {
@@ -1609,6 +1888,9 @@ export function App() {
       if (name.endsWith(".yal")) {
         setYalFilePath(path);
       }
+      if (name.endsWith(".yapar")) {
+        setYaparFilePath(path);
+      }
       if (name.endsWith(".txt")) {
         setInputFilePath(path);
       }
@@ -1665,18 +1947,26 @@ export function App() {
   }
 
   async function executeAction(
-    action: YalexAction,
+    action: AnyAction,
     yalPath: string | undefined,
-    yalSource: string | undefined
+    yalSource: string | undefined,
+    yaparPath: string | undefined = undefined,
+    yaparSource: string | undefined = undefined
   ): Promise<boolean> {
     const response = await runYalex({
       workspaceRoot,
       action,
       yalPath,
       yalSource,
-      inputPath: action === "tokenize" ? inputFilePath : undefined,
-      outputPath: action === "generate" ? generateOutputPath : undefined,
-      includeTrace: action === "tokenize",
+      yaparPath,
+      yaparSource,
+      inputPath: (action === "tokenize" || action === "yaparParse") ? inputFilePath : undefined,
+      outputPath: action === "generate"
+        ? generateOutputPath
+        : action === "yaparGenerate"
+        ? generateParserOutputPath
+        : undefined,
+      includeTrace: action === "tokenize" || action === "yaparParse",
       traceLimit: 200,
     });
 
@@ -1739,6 +2029,61 @@ export function App() {
       return true;
     } catch (error) {
       pushOutput("error", `Fallo al ejecutar pipeline completo: ${String(error)}`);
+      return false;
+    } finally {
+      setIsRunningAction(false);
+    }
+  }
+
+  async function runYaparPipeline(): Promise<boolean> {
+    if (!workspaceRoot) {
+      pushOutput("error", "No hay workspace abierto.");
+      return false;
+    }
+
+    if (!yaparFilePath.trim()) {
+      pushOutput("error", "Debe ingresar la ruta del archivo .yapar.");
+      return false;
+    }
+
+    if (!yalFilePath.trim()) {
+      pushOutput("error", "Debe ingresar la ruta del archivo .yal del lexer.");
+      return false;
+    }
+
+    if (!inputFilePath.trim()) {
+      pushOutput("error", "Debe ingresar la ruta del archivo .txt de entrada.");
+      return false;
+    }
+
+    try {
+      setIsRunningAction(true);
+      pushOutput("info", "Iniciando ejecución secuencial del pipeline YAPar.");
+
+      for (let index = 0; index < YAPAR_PIPELINE_ACTIONS.length; index++) {
+        const nextAction = YAPAR_PIPELINE_ACTIONS[index];
+        pushOutput(
+          "info",
+          `Paso ${index + 1}/${YAPAR_PIPELINE_ACTIONS.length}: ejecutando ${getActionLabel(nextAction)}`
+        );
+
+        const ok = await executeAction(
+          nextAction,
+          yalFilePath,
+          undefined,
+          yaparFilePath,
+          undefined
+        );
+        if (!ok) {
+          pushOutput("error", `Pipeline YAPar detenido en '${getActionLabel(nextAction)}'.`);
+          return false;
+        }
+      }
+
+      pushOutput("ok", "Pipeline YAPar completo finalizado correctamente.");
+      return true;
+    } catch (error) {
+      pushOutput("error", `Fallo al ejecutar pipeline YAPar completo: ${String(error)}`);
       return false;
     } finally {
       setIsRunningAction(false);
@@ -1865,8 +2210,10 @@ export function App() {
         console.log("[Bootstrap] Got workspace root:", root);
 
         setYalFilePath("");
+        setYaparFilePath("");
         setInputFilePath("");
         setGenerateOutputPath(joinPath(root, "output", "lexer_generated_tauri.py"));
+        setGenerateParserOutputPath(joinPath(root, "output", "parser_generated_tauri.py"));
 
         console.log("[Bootstrap] Opening workspace root...");
         await openWorkspaceRoot(root);
@@ -2164,77 +2511,164 @@ export function App() {
                 <div className="panel-hero-copy">
                   <span className="panel-hero-kicker">Ejecución</span>
                   <h2>Pipeline</h2>
-                  <p>Configura el `.yal`, el input y el output antes de ejecutar.</p>
+                  <p>Configura los archivos de trabajo y ejecuta el pipeline completo.</p>
                 </div>
                 <div className="panel-hero-badge">
                   <strong>{pipelineStatusLabel}</strong>
                   <span>estado</span>
                 </div>
               </div>
-              <div className="panel-title panel-title-tight">
-                <span>Pipeline YALex</span>
-                <span className={`status-chip ${pipelineStatus}`}>{pipelineStatusLabel}</span>
+
+              <div className="workflow-selector-tab">
+                <button
+                  type="button"
+                  className={`workflow-btn ${activeWorkflow === "yalex" ? "active" : ""}`}
+                  onClick={() => setActiveWorkflow("yalex")}
+                >
+                  YALex (Lexer)
+                </button>
+                <button
+                  type="button"
+                  className={`workflow-btn ${activeWorkflow === "yapar" ? "active" : ""}`}
+                  onClick={() => setActiveWorkflow("yapar")}
+                >
+                  YAPar (Parser)
+                </button>
               </div>
 
+              {activeWorkflow === "yalex" ? (
+                <div className="panel-title panel-title-tight">
+                  <span>Pipeline YALex</span>
+                  <span className={`status-chip ${pipelineStatus}`}>{pipelineStatusLabel}</span>
+                </div>
+              ) : (
+                <div className="panel-title panel-title-tight">
+                  <span>Pipeline YAPar</span>
+                  <span className={`status-chip ${pipelineStatus}`}>{pipelineStatusLabel}</span>
+                </div>
+              )}
+
               <div className="command-scroll">
-                <section className="command-section">
-                  <h3 className="section-title">Archivos de trabajo</h3>
+                {activeWorkflow === "yalex" ? (
+                  <>
+                    <section className="command-section">
+                      <h3 className="section-title">Archivos de trabajo</h3>
 
-                  <label className="field">
-                    <span className="field-label">Archivo .yal</span>
-                    <input
-                      value={yalFilePath}
-                      onChange={(event) => setYalFilePath(event.target.value)}
-                      placeholder="Ruta al archivo .yal"
-                    />
-                  </label>
+                      <label className="field">
+                        <span className="field-label">Archivo .yal</span>
+                        <input
+                          value={yalFilePath}
+                          onChange={(event) => setYalFilePath(event.target.value)}
+                          placeholder="Ruta al archivo .yal"
+                        />
+                      </label>
 
-                  <label className="field">
-                    <span className="field-label">Input (.txt)</span>
-                    <input
-                      value={inputFilePath}
-                      onChange={(event) => setInputFilePath(event.target.value)}
-                      placeholder="Ruta del texto de entrada"
-                    />
-                  </label>
+                      <label className="field">
+                        <span className="field-label">Input (.txt)</span>
+                        <input
+                          value={inputFilePath}
+                          onChange={(event) => setInputFilePath(event.target.value)}
+                          placeholder="Ruta del texto de entrada"
+                        />
+                      </label>
 
-                  <label className="field">
-                    <span className="field-label">Output lexer</span>
-                    <input
-                      value={generateOutputPath}
-                      onChange={(event) => setGenerateOutputPath(event.target.value)}
-                      placeholder="Ruta del lexer generado"
-                    />
-                  </label>
-                </section>
+                      <label className="field">
+                        <span className="field-label">Output lexer</span>
+                        <input
+                          value={generateOutputPath}
+                          onChange={(event) => setGenerateOutputPath(event.target.value)}
+                          placeholder="Ruta del lexer generado"
+                        />
+                      </label>
+                    </section>
 
-                <section className="command-section">
-                  <h3 className="section-title">Acciones</h3>
-                  <div className="command-actions">
-                    <button
-                      className="run-all-btn btn btn-primary"
-                      onClick={() => void runFullPipeline()}
-                      disabled={isRunningAction}
-                    >
-                      {isRunningAction ? "Ejecutando pipeline..." : "Ejecutar pipeline"}
-                    </button>
+                    <section className="command-section">
+                      <h3 className="section-title">Acciones</h3>
+                      <div className="command-actions">
+                        <button
+                          className="run-all-btn btn btn-primary"
+                          onClick={() => void runFullPipeline()}
+                          disabled={isRunningAction}
+                        >
+                          {isRunningAction ? "Ejecutando pipeline..." : "Ejecutar pipeline"}
+                        </button>
 
-                    <button
-                      className="run-check-btn btn"
-                      onClick={() => void runGeneratedLexerProgram()}
-                      disabled={isRunningAction}
-                    >
-                      Ejecutar lexer generado
-                    </button>
-                  </div>
+                        <button
+                          className="run-check-btn btn"
+                          onClick={() => void runGeneratedLexerProgram()}
+                          disabled={isRunningAction}
+                        >
+                          Ejecutar lexer generado
+                        </button>
+                      </div>
 
-                  <p className="command-hint">
-                    Flujo recomendado: Spec → AST → Construcción Directa → DFA → Tokenizar →
-                    Generar Lexer.
-                  </p>
-                </section>
+                      <p className="command-hint">
+                        Flujo recomendado: Spec → AST → Construcción Directa → DFA → Tokenizar → Generar Lexer.
+                      </p>
+                    </section>
+                  </>
+                ) : (
+                  <>
+                    <section className="command-section">
+                      <h3 className="section-title">Archivos de trabajo</h3>
 
-                {validationChecks.length > 0 && (
+                      <label className="field">
+                        <span className="field-label">Archivo .yapar</span>
+                        <input
+                          value={yaparFilePath}
+                          onChange={(event) => setYaparFilePath(event.target.value)}
+                          placeholder="Ruta al archivo .yapar"
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field-label">Archivo .yal (Lexer)</span>
+                        <input
+                          value={yalFilePath}
+                          onChange={(event) => setYalFilePath(event.target.value)}
+                          placeholder="Ruta al archivo .yal del lexer"
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field-label">Input (.txt)</span>
+                        <input
+                          value={inputFilePath}
+                          onChange={(event) => setInputFilePath(event.target.value)}
+                          placeholder="Ruta del texto de entrada"
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field-label">Output parser</span>
+                        <input
+                          value={generateParserOutputPath}
+                          onChange={(event) => setGenerateParserOutputPath(event.target.value)}
+                          placeholder="Ruta del parser generado"
+                        />
+                      </label>
+                    </section>
+
+                    <section className="command-section">
+                      <h3 className="section-title">Acciones</h3>
+                      <div className="command-actions">
+                        <button
+                          className="run-all-btn btn btn-primary"
+                          onClick={() => void runYaparPipeline()}
+                          disabled={isRunningAction}
+                        >
+                          {isRunningAction ? "Ejecutando YAPar..." : "Ejecutar pipeline YAPar"}
+                        </button>
+                      </div>
+
+                      <p className="command-hint">
+                        Flujo recomendado: Especificación → Autómata LR(0) → Tabla SLR → Parsear (Simulación) → Generar Parser.
+                      </p>
+                    </section>
+                  </>
+                )}
+
+                {validationChecks.length > 0 && activeWorkflow === "yalex" && (
                   <section className="validation-panel">
                     <div className="validation-header">
                       <strong>{`Validación ${passedChecks}/${totalChecks}`}</strong>
@@ -2357,6 +2791,10 @@ export function App() {
                 <pre className="result-view">
                   {isLoadingGeneratedCode ? "Cargando código generado..." : generatedPythonCode}
                 </pre>
+              ) : activeResultAction === "yaparTable" && activeResultObject ? (
+                renderSlrTable(activeResultObject as YaparTableResult)
+              ) : activeResultAction === "yaparParse" && activeResultObject ? (
+                renderParserTrace(activeResultObject as YaparParseResult)
               ) : (
                 <pre className="result-view">{activeResultText}</pre>
               )}

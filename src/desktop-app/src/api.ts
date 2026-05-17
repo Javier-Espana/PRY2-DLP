@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FileNode, YalexAction } from "./types";
+import type { FileNode, YalexAction, YaparAction, AnyAction } from "./types";
 
 const TAURI_INVOKE_TIMEOUT_MS = 15000;
 
@@ -152,9 +152,11 @@ export async function deleteFile(path: string): Promise<void> {
 
 export async function runYalex(payload: {
   workspaceRoot: string;
-  action: YalexAction;
+  action: AnyAction;
   yalPath?: string;
   yalSource?: string;
+  yaparPath?: string;
+  yaparSource?: string;
   inputPath?: string;
   inputText?: string;
   includeTrace?: boolean;

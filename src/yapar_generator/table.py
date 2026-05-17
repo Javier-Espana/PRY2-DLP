@@ -20,7 +20,8 @@ class LRTable:
     def _build_tables(self) -> None:
         """Build ACTION and GOTO tables from the automaton."""
         # Compute FOLLOW sets for SLR lookahead
-        follow = self._compute_follow_sets()
+        self.follow = self._compute_follow_sets()
+        follow = self.follow
         
         # Build a set of terminals and nonterminals
         terminals = set(self.grammar.tokens)

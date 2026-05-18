@@ -648,7 +648,9 @@ export function App() {
   const [leftSidebarView, setLeftSidebarView] = useState<"explorer" | "pipeline" | "results">("explorer");
   const [isInitializing, setIsInitializing] = useState<boolean>(true); // Show loading state while Tauri initializes
   const [initError, setInitError] = useState<string>(""); // Track initialization errors
-  const [sidebarWidth, setSidebarWidth] = useState<number>(restoredSizes?.sidebarWidth ?? 340);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(
+    restoredSizes?.sidebarWidth ? Math.round(restoredSizes.sidebarWidth * 1.25) : Math.round(340 * 1.25)
+  );
   const [rightPanelWidth, setRightPanelWidth] = useState<number>(
     restoredSizes?.rightPanelWidth ?? 340
   );
@@ -677,6 +679,10 @@ export function App() {
     () => tabs.find((tab) => tab.path === activeTabPath) ?? null,
     [tabs, activeTabPath]
   );
+
+  // Activity bar scaling factor (0.8 = 80% of baseline 81px)
+  const activityBarScale = 0.8;
+  const activityBarWidth = Math.round(81 * activityBarScale);
 
   const visibleResultActions = useMemo(
     () => {
@@ -2819,19 +2825,22 @@ export function App() {
       <main
         className="workspace"
         style={{
-          gridTemplateColumns: `52px ${leftSidebarView === "results" ? 0 : sidebarWidth}px ${leftSidebarView === "results" ? 0 : 6}px 1fr`,
+          gridTemplateColumns: `${activityBarWidth}px ${leftSidebarView === "results" ? 0 : sidebarWidth}px ${leftSidebarView === "results" ? 0 : 6}px 1fr`,
         }}
       >
         <nav className="activity-bar" aria-label="Navegación lateral">
-          <button
+            <button
             type="button"
             className={`activity-btn ${leftSidebarView === "explorer" ? "active" : ""}`}
             onClick={() => setLeftSidebarView("explorer")}
             title="Explorer"
             aria-label="Explorer"
           >
-            <span className="activity-icon activity-icon-explorer" aria-hidden="true" />
-            <span className="activity-label">Explorer</span>
+            <span
+              className="activity-icon"
+              aria-hidden="true"
+              style={{ WebkitMaskImage: `url(/icons/explorer.svg)`, maskImage: `url(/icons/explorer.svg)` }}
+            />
           </button>
           <button
             type="button"
@@ -2840,8 +2849,11 @@ export function App() {
             title="Pipeline"
             aria-label="Pipeline"
           >
-            <span className="activity-icon activity-icon-pipeline" aria-hidden="true" />
-            <span className="activity-label">Pipeline</span>
+            <span
+              className="activity-icon"
+              aria-hidden="true"
+              style={{ WebkitMaskImage: `url(/icons/pipeline.svg)`, maskImage: `url(/icons/pipeline.svg)` }}
+            />
           </button>
           <button
             type="button"
@@ -2850,8 +2862,11 @@ export function App() {
             title="Resultados"
             aria-label="Resultados"
           >
-            <span className="activity-icon activity-icon-results" aria-hidden="true" />
-            <span className="activity-label">Resultados</span>
+            <span
+              className="activity-icon"
+              aria-hidden="true"
+              style={{ WebkitMaskImage: `url(/icons/results.svg)`, maskImage: `url(/icons/results.svg)` }}
+            />
           </button>
         </nav>
 

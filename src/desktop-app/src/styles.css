@@ -250,18 +250,22 @@ button {
 .workspace {
   min-height: 0;
   display: grid;
-  grid-template-columns: 52px 340px 6px 1fr;
+  /* keep the left column width so layout remains stable, activity bar will overlay it */
+  grid-template-columns: 81px 340px 6px 1fr;
+  position: relative;
 }
 
 .activity-bar {
-  min-height: 0;
+  /* keep activity bar in the normal grid flow as the leftmost column */
+  position: relative;
   border-right: 1px solid #1f2937;
   background: var(--bg);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 6px 4px;
+  gap: 6px;
+  padding: 10px 6px;
+  width: 100%;
 }
 
 .activity-btn {
@@ -270,76 +274,35 @@ button {
   background: transparent;
   color: var(--muted);
   border-radius: 6px;
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  padding: 6px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  row-gap: 6px;
+  padding: 10px 4px;
 }
 
 .activity-icon {
-  width: 18px;
-  height: 18px;
-  position: relative;
+  width: 29px;
+  height: 29px;
   display: inline-block;
-}
-
-.activity-icon::before,
-.activity-icon::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 4px;
-}
-
-.activity-icon-explorer::before {
-  border: 1.5px solid currentColor;
-  inset: 2px 3px 2px 3px;
-}
-
-.activity-icon-explorer::after {
-  border: 1.5px solid currentColor;
-  inset: 5px 6px 5px 6px;
-  opacity: 0.7;
-}
-
-.activity-icon-pipeline::before {
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-  inset: 3px;
-}
-
-.activity-icon-pipeline::after {
-  width: 2px;
-  height: 8px;
-  left: 8px;
-  top: 4px;
-  background: currentColor;
-  transform-origin: bottom center;
-  transform: rotate(35deg);
-  border-radius: 2px;
-}
-
-.activity-icon-results::before {
-  background: linear-gradient(to top, currentColor 0 100%);
-  inset: 4px 3px 4px 3px;
-  clip-path: polygon(0 100%, 0 65%, 25% 70%, 48% 25%, 68% 48%, 100% 0, 100% 100%);
-}
-
-.activity-icon-results::after {
-  inset: 11px 3px 3px 3px;
-  border-top: 1.5px solid currentColor;
-  opacity: 0.55;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .activity-btn:hover {
-  background: rgba(120, 157, 224, 0.08);
-  color: var(--text);
+  background: rgba(110,168,255,0.08); /* accent-soft tint */
+  color: var(--accent-soft);
 }
 
 .activity-btn.active {
-  background: rgba(83, 132, 215, 0.15);
+  background: rgba(110,168,255,0.15); /* accent-soft */
   border-color: transparent;
-  color: #dfe9ff;
+  color: var(--accent);
 }
 
 .activity-icon {
@@ -351,10 +314,14 @@ button {
   font-size: 9px;
   letter-spacing: 0.2px;
   text-transform: uppercase;
-  max-width: 38px;
+  max-width: none;
+  width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: center;
+  display: block;
+  padding: 0 4px;
 }
 
 .sidepanel {
@@ -372,6 +339,10 @@ button {
   background: var(--bg);
   cursor: col-resize;
   z-index: 2;
+  /* enforce narrow splitter width so it doesn't grow unexpectedly */
+  width: 6px;
+  min-width: 6px;
+  max-width: 6px;
 }
 
 .splitter:hover {

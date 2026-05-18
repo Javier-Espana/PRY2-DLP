@@ -522,6 +522,10 @@ button {
 
 .explorer-view {
   --explorer-font-scale: 1.15;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .explorer-view .panel-title {
@@ -546,6 +550,12 @@ button {
 
 .explorer-view .entry-create-input {
   font-size: calc(12px * var(--explorer-font-scale));
+}
+
+.explorer-view .file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .entry {

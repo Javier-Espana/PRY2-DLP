@@ -42,21 +42,22 @@ class LRTable:
             # Reduce actions from reduce items
             for item in state.items:
                 if item.is_reduce():
-                    # Find which production this corresponds to
+                    # Special case: accept on augmented production.
+                    if item.lhs == "_START_":
+                        action_row["$"] = ("accept", 0)
+                        continue
+
+                    # Find which production this corresponds to.
                     prod_idx = self._find_production_index(item)
                     if prod_idx is not None:
-                        # Special case: accept on augmented production
-                        if item.lhs == "_START_":
-                            action_row["$"] = ("accept", 0)
-                        else:
-                            # For each terminal in FOLLOW(item.lhs), add reduce action
-                            for terminal in follow.get(item.lhs, set()):
-                                if terminal not in action_row:
+                        # For each terminal in FOLLOW(item.lhs), add reduce action.
+                        for terminal in follow.get(item.lhs, set()):
+                            if terminal not in action_row:
+                                action_row[terminal] = ("reduce", prod_idx)
+                            else:
+                                # Conflict resolution: prefer shift over reduce
+                                if action_row[terminal][0] != "shift":
                                     action_row[terminal] = ("reduce", prod_idx)
-                                else:
-                                    # Conflict resolution: prefer shift over reduce
-                                    if action_row[terminal][0] != "shift":
-                                        action_row[terminal] = ("reduce", prod_idx)
 
             self.action.append(action_row)
             self.goto.append(goto_row)
@@ -72,47 +73,88 @@ class LRTable:
 
     def _compute_follow_sets(self) -> Dict[str, Set[str]]:
         """Compute FOLLOW sets for each nonterminal using fixed-point iteration."""
-        # Build a set of terminals for quick lookup
         terminals = set(self.grammar.tokens)
         nonterminals = set(prod.lhs for prod in self.grammar.productions)
-        
-        follow: Dict[str, Set[str]] = {}
-        
-        # Initialize FOLLOW sets
-        for nt in nonterminals:
-            follow[nt] = set()
-        
-        # FOLLOW(start) = {$}
+
+        first: Dict[str, Set[str]] = {nt: set() for nt in nonterminals}
+        nullable: Dict[str, bool] = {nt: False for nt in nonterminals}
+
+        # Compute FIRST and nullable sets.
+        changed = True
+        while changed:
+            changed = False
+            for prod in self.grammar.productions:
+                lhs = prod.lhs
+                if not prod.rhs:
+                    if not nullable[lhs]:
+                        nullable[lhs] = True
+                        changed = True
+                    continue
+
+                all_nullable = True
+                for symbol in prod.rhs:
+                    if symbol in terminals:
+                        if symbol not in first[lhs]:
+                            first[lhs].add(symbol)
+                            changed = True
+                        all_nullable = False
+                        break
+                    if symbol in nonterminals:
+                        before = len(first[lhs])
+                        first[lhs].update(first[symbol])
+                        if len(first[lhs]) > before:
+                            changed = True
+                        if not nullable[symbol]:
+                            all_nullable = False
+                            break
+                    else:
+                        all_nullable = False
+                        break
+
+                if all_nullable and not nullable[lhs]:
+                    nullable[lhs] = True
+                    changed = True
+
+        follow: Dict[str, Set[str]] = {nt: set() for nt in nonterminals}
         follow[self.grammar.start_symbol] = {"$"}
-        
-        # Fixed-point iteration
+
+        # FOLLOW sets via fixed-point iteration.
         changed = True
         while changed:
             changed = False
             for prod in self.grammar.productions:
                 for i, symbol in enumerate(prod.rhs):
-                    if symbol in nonterminals:  # This is a nonterminal
-                        # Add terminals that follow this symbol
-                        for j in range(i + 1, len(prod.rhs)):
-                            next_sym = prod.rhs[j]
-                            if next_sym in terminals:
-                                before = len(follow[symbol])
-                                follow[symbol].add(next_sym)
-                                if len(follow[symbol]) > before:
-                                    changed = True
-                                break
-                            elif next_sym in nonterminals:
-                                # Add FIRST of next_sym (for now, assume all nonterminals have epsilon production)
-                                # In a full implementation, we'd compute FIRST sets
-                                pass
-                        else:
-                            # All following symbols are nonterminals
-                            # Add FOLLOW(prod.lhs)
+                    if symbol not in nonterminals:
+                        continue
+
+                    suffix = prod.rhs[i + 1:]
+                    trailer_nullable = True
+                    for next_sym in suffix:
+                        if next_sym in terminals:
                             before = len(follow[symbol])
-                            follow[symbol].update(follow[prod.lhs])
+                            follow[symbol].add(next_sym)
                             if len(follow[symbol]) > before:
                                 changed = True
-        
+                            trailer_nullable = False
+                            break
+                        if next_sym in nonterminals:
+                            before = len(follow[symbol])
+                            follow[symbol].update(first[next_sym])
+                            if len(follow[symbol]) > before:
+                                changed = True
+                            if not nullable[next_sym]:
+                                trailer_nullable = False
+                                break
+                        else:
+                            trailer_nullable = False
+                            break
+
+                    if trailer_nullable:
+                        before = len(follow[symbol])
+                        follow[symbol].update(follow[prod.lhs])
+                        if len(follow[symbol]) > before:
+                            changed = True
+
         return follow
 
     def get_action(self, state: int, lookahead: str) -> Tuple[str, int]:

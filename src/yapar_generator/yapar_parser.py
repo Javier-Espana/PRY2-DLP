@@ -29,6 +29,50 @@ class GrammarSpec:
     declarations: Dict[str, str]  # header, trailer, etc.
 
 
+def _split_top_level(text: str, separator: str) -> List[str]:
+    """Split text on a separator only when it is outside braces and quotes."""
+    parts: List[str] = []
+    current: List[str] = []
+    brace_depth = 0
+    quote_char: Optional[str] = None
+    escaped = False
+
+    for ch in text:
+        if quote_char is not None:
+            current.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote_char:
+                quote_char = None
+            continue
+
+        if ch in ('"', "'"):
+            quote_char = ch
+            current.append(ch)
+            continue
+
+        if ch == '{':
+            brace_depth += 1
+        elif ch == '}' and brace_depth > 0:
+            brace_depth -= 1
+
+        if ch == separator and brace_depth == 0:
+            part = ''.join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+        else:
+            current.append(ch)
+
+    tail = ''.join(current).strip()
+    if tail:
+        parts.append(tail)
+
+    return parts
+
+
 def parse_yapar(source: str) -> GrammarSpec:
     """Parse a .yapar specification file.
     
@@ -102,8 +146,8 @@ def _parse_grammar_rules(grammar_text: str) -> List[Production]:
     grammar_text = re.sub(r'/\*.*?\*/', '', grammar_text, flags=re.DOTALL)
     grammar_text = re.sub(r'//.*?$', '', grammar_text, flags=re.MULTILINE)
     
-    # Split by semicolons to get rule groups
-    rule_groups = grammar_text.split(';')
+    # Split by semicolons to get rule groups, but ignore semicolons inside actions.
+    rule_groups = _split_top_level(grammar_text, ';')
     
     for group in rule_groups:
         group = group.strip()
@@ -130,8 +174,8 @@ def _parse_grammar_rules(grammar_text: str) -> List[Production]:
         # RHS is everything after the colon
         body = group[colon_idx + 1:].strip()
         
-        # Parse productions (alternatives separated by |)
-        alternatives = body.split('|')
+        # Parse productions (alternatives separated by |) without breaking actions.
+        alternatives = _split_top_level(body, '|')
         
         for alt in alternatives:
             alt = alt.strip()

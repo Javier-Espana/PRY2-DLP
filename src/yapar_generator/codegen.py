@@ -68,8 +68,9 @@ def create_parser_tables() -> Tuple[List[Dict], List[Dict], List[Tuple]]:
     code_parts.append("    productions = [")
     code_parts.append('        ("_START_", ("start_symbol",)),  # Augmented production (idx 0)')
     for idx, prod in enumerate(grammar.productions):
-        rhs_str = ', '.join(f'"{s}"' for s in prod.rhs)
-        code_parts.append(f'        ("{prod.lhs}", ({rhs_str})),  # Production {idx + 1}')
+        rhs_items = ', '.join(f'"{s}"' for s in prod.rhs)
+        rhs_tuple = f'({rhs_items},)' if len(prod.rhs) == 1 else f'({rhs_items})'
+        code_parts.append(f'        ("{prod.lhs}", {rhs_tuple}),  # Production {idx + 1}')
     code_parts.append("    ]")
 
     code_parts.append("    return action_table, goto_table, productions")

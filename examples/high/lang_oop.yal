@@ -7,8 +7,8 @@ let id = letter (letter | digit)*
 let number = digit+
 let float = digit+ '.' digit+
 let hex = "0x" hex_digit+
-let string = '"' ([^'"'] | '\\"' | '\\n')* '"'
-let char_lit = '\'' ([^'\''] | '\\'\'')+ '\''
+let string = '"' ([^'"'])* '"'
+let char_lit = "'" _ "'"
 let ws = [' ''\t''\n''\r']+
 let comment = "//" [^'\n']*
 let mlcomment = "/*" ([^*] | '*' [^/])* "*/"
@@ -87,6 +87,14 @@ rule tokens =
 | "&&"           { return "AND" }
 | "||"           { return "OR" }
 | "!"            { return "NOT" }
+| "*"            { return "TIMES" }
+| "/"            { return "DIV" }
+| "%"            { return "MOD" }
+| "+"            { return "PLUS" }
+| "-"            { return "MINUS" }
+| "="            { return "ASSIGN" }
+| "<"            { return "LT" }
+| ">"            { return "GT" }
 | "&"            { return "BIT_AND" }
 | "|"            { return "BIT_OR" }
 | "^"            { return "XOR" }

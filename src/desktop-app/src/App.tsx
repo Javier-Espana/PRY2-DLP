@@ -292,12 +292,15 @@ function renderEdgeLabel(
 ): JSX.Element {
   const lines = label.split("\n");
   const maxChars = Math.max(...lines.map((line) => line.length), 1);
-  const lineHeight = 14;
-  const boxWidth = Math.min(300, Math.max(44, maxChars * 7 + 14));
-  const boxHeight = lines.length * lineHeight + 8;
+  // Use larger metrics only for YAPar transition labels
+  const isYaparLabel = className.includes("yapar-transition-label") || className.includes("yapar-transition");
+  const lineHeight = isYaparLabel ? 28 : 14;
+  const charWidth = isYaparLabel ? 14 : 7;
+  const boxWidth = Math.min(isYaparLabel ? 600 : 300, Math.max(isYaparLabel ? 56 : 44, maxChars * charWidth + (isYaparLabel ? 18 : 14)));
+  const boxHeight = lines.length * lineHeight + (isYaparLabel ? 12 : 8);
   const boxX = x - boxWidth / 2;
   const boxY = y - boxHeight / 2;
-  const textStartY = boxY + 14;
+  const textStartY = boxY + (isYaparLabel ? Math.round(lineHeight / 1.8) : 14);
 
   return (
     <g className="graph-edge-label-group">
@@ -502,6 +505,7 @@ function isTextFile(name: string): boolean {
     lowered.endsWith(".md") ||
     lowered.endsWith(".txt") ||
     lowered.endsWith(".yal") ||
+    lowered.endsWith(".yalp") ||
     lowered.endsWith(".yaml") ||
     lowered.endsWith(".yml") ||
     lowered.endsWith(".json") ||
@@ -555,7 +559,7 @@ function languageFromFileName(name: string): string {
   if (lowered.endsWith(".yaml") || lowered.endsWith(".yml")) return "yaml";
   if (lowered.endsWith(".toml")) return "ini";
   if (lowered.endsWith(".sh")) return "shell";
-  if (lowered.endsWith(".txt") || lowered.endsWith(".lock") || lowered.endsWith(".yal")) {
+  if (lowered.endsWith(".txt") || lowered.endsWith(".lock") || lowered.endsWith(".yal") || lowered.endsWith(".yalp")) {
     return "plaintext";
   }
   return "plaintext";
@@ -595,6 +599,10 @@ function registerEditorTheme(monaco: Monaco) {
 export function App() {
   const workbenchSplitRef = useRef<HTMLDivElement | null>(null);
   const outputLogRef = useRef<HTMLDivElement | null>(null);
+  const yaparScrollRef = useRef<HTMLDivElement | null>(null);
+  const yaparScrollRestoreRef = useRef<{ left: number; top: number } | null>(null);
+  const yaparDetailScrollRef = useRef<HTMLDivElement | null>(null);
+  const yaparDetailScrollRestoreRef = useRef<{ left: number; top: number } | null>(null);
   const restoredSizes = useMemo(
     () =>
       parseSavedSizes(
@@ -613,6 +621,7 @@ export function App() {
 
   const [output, setOutput] = useState<OutputItem[]>([]);
   const [latestResult, setLatestResult] = useState<string>("Sin resultados todavía.");
+  const [isOutputVisible, setIsOutputVisible] = useState<boolean>(true);
   const [activeWorkflow, setActiveWorkflow] = useState<"yalex" | "yapar">("yalex");
   const [actionResults, setActionResults] = useState<Partial<Record<AnyAction, string>>>({});
   const [actionResultObjects, setActionResultObjects] = useState<
@@ -627,6 +636,7 @@ export function App() {
   const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
   const [validationChecks, setValidationChecks] = useState<ValidationCheck[]>([]);
   const [validationRunAt, setValidationRunAt] = useState<string>("");
+  const [yaparZoom, setYaparZoom] = useState<number>(1);
 
   const [yalFilePath, setYalFilePath] = useState<string>("");
   const [yaparFilePath, setYaparFilePath] = useState<string>("");
@@ -682,6 +692,50 @@ export function App() {
       : latestResult;
 
   const activeResultObject = activeResultAction ? actionResultObjects[activeResultAction] : null;
+  const effectiveOutputPanelHeight = isOutputVisible ? outputPanelHeight : 0;
+  const captureYaparScroll = () => {
+    if (!yaparScrollRef.current) {
+      return;
+    }
+    yaparScrollRestoreRef.current = {
+      left: yaparScrollRef.current.scrollLeft,
+      top: yaparScrollRef.current.scrollTop,
+    };
+  };
+
+  const handleYaparWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    // Zoom only with Ctrl + wheel.
+    const shouldZoom = e.ctrlKey;
+    if (!shouldZoom) {
+      return;
+    }
+    e.preventDefault();
+    captureYaparScroll();
+    const step = 0.1;
+    const change = e.deltaY > 0 ? -step : step;
+    setYaparZoom((current) => Math.min(2, Math.max(0.1, Math.round((current + change) * 10) / 10)));
+  };
+  const increaseYaparZoom = () => {
+    captureYaparScroll();
+    setYaparZoom((current) => Math.min(2, Math.round((current + 0.1) * 10) / 10));
+  };
+  const decreaseYaparZoom = () => {
+    captureYaparScroll();
+    setYaparZoom((current) => Math.max(0.1, Math.round((current - 0.1) * 10) / 10));
+  };
+  const resetYaparZoom = () => {
+    captureYaparScroll();
+    setYaparZoom(1);
+  };
+  const captureYaparDetailScroll = () => {
+    if (!yaparDetailScrollRef.current) {
+      return;
+    }
+    yaparDetailScrollRestoreRef.current = {
+      left: yaparDetailScrollRef.current.scrollLeft,
+      top: yaparDetailScrollRef.current.scrollTop,
+    };
+  };
 
   const graphSupportedActions: AnyAction[] = ["ast", "dfa", "combinedNfa", "yaparAutomaton"];
   const canRenderGraph = Boolean(
@@ -692,6 +746,40 @@ export function App() {
 
   const yaparGenerateRoot = activeResultAction === "yaparGenerate" ? asObject(activeResultObject) : null;
   const yaparGeneratedOutputPath = yaparGenerateRoot ? asString(yaparGenerateRoot.outputPath) : null;
+
+  useEffect(() => {
+    if (!yaparScrollRestoreRef.current || !yaparScrollRef.current) {
+      return;
+    }
+
+    const { left, top } = yaparScrollRestoreRef.current;
+    yaparScrollRestoreRef.current = null;
+
+    requestAnimationFrame(() => {
+      if (!yaparScrollRef.current) {
+        return;
+      }
+      yaparScrollRef.current.scrollLeft = left;
+      yaparScrollRef.current.scrollTop = top;
+    });
+  }, [yaparZoom]);
+
+  useEffect(() => {
+    if (!yaparDetailScrollRestoreRef.current || !yaparDetailScrollRef.current) {
+      return;
+    }
+
+    const { left, top } = yaparDetailScrollRestoreRef.current;
+    yaparDetailScrollRestoreRef.current = null;
+
+    requestAnimationFrame(() => {
+      if (!yaparDetailScrollRef.current) {
+        return;
+      }
+      yaparDetailScrollRef.current.scrollLeft = left;
+      yaparDetailScrollRef.current.scrollTop = top;
+    });
+  }, [yaparSelectedStateId]);
 
   const generatedCodePathCandidates = useMemo(() => {
     if (activeResultAction !== "generate" && activeResultAction !== "yaparGenerate") {
@@ -733,6 +821,10 @@ export function App() {
 
   const passedChecks = validationChecks.filter((check) => check.ok).length;
   const totalChecks = validationChecks.length;
+  const canRunFullPipeline = Boolean(workspaceRoot && yalFilePath.trim() && inputFilePath.trim() && !isRunningAction);
+  const canRunYaparPipeline = Boolean(
+    workspaceRoot && yaparFilePath.trim() && yalFilePath.trim() && inputFilePath.trim() && !isRunningAction
+  );
 
   useEffect(() => {
     if (resultViewMode !== "code") {
@@ -1411,6 +1503,7 @@ export function App() {
                   style={{ cursor: "pointer" }}
                   onClick={() => {
                     if (activeResultAction === "yaparAutomaton") {
+                      captureYaparDetailScroll();
                       setYaparSelectedStateId(Number(node.id));
                     }
                   }}
@@ -1478,6 +1571,214 @@ export function App() {
     };
   }
 
+  function renderYaparAutomatonView(data: YaparAutomatonResult): JSX.Element {
+    const cardWidth = 280;
+    const cardHeight = 230;
+    const count = Math.max(1, data.states.length);
+    const radius = Math.max(220, 90 * count);
+    const baseWidth = Math.max(980, radius * 2 + cardWidth + 96);
+    const baseHeight = Math.max(700, radius * 2 + cardHeight + 96);
+    const width = Math.round(baseWidth * yaparZoom);
+    const height = Math.round(baseHeight * yaparZoom);
+    const cx = baseWidth / 2;
+    const cy = baseHeight / 2;
+    const markerId = "yapar-arrow";
+
+    const positions = new Map<number, { x: number; y: number }>();
+    data.states.forEach((state, index) => {
+      const angle = (2 * Math.PI * index) / count - Math.PI / 2;
+      positions.set(state.id, {
+        x: cx + radius * Math.cos(angle),
+        y: cy + radius * Math.sin(angle),
+      });
+    });
+
+    const selectedState =
+      data.states.find((state) => state.id === yaparSelectedStateId) ?? data.states[0] ?? null;
+
+    const getKernelItems = (state: YaparAutomatonResult["states"][number]): string[] =>
+      state.kernel_items ?? state.items.filter((item) => !item.includes(" -> . "));
+    const getClosureItems = (state: YaparAutomatonResult["states"][number]): string[] =>
+      state.closure_items ?? state.items.filter((item) => item.includes(" -> . "));
+
+    return (
+      <div className="yapar-automaton-container yapar-automaton-container-rich">
+          <div className="yapar-graph-wrapper yapar-graph-wrapper-rich">
+          <div
+            className="yapar-automaton-scroll"
+            ref={yaparScrollRef}
+            onWheel={handleYaparWheel}
+          >
+            <div className="yapar-automaton-stage-viewport" style={{ width, height }}>
+              <div
+                className="yapar-automaton-stage"
+                style={{ width: baseWidth, height: baseHeight, transform: `scale(${yaparZoom})` }}
+              >
+              <svg className="yapar-transition-layer" viewBox={`0 0 ${baseWidth} ${baseHeight}`} aria-hidden="true">
+                <defs>
+                  <marker id={markerId} markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" />
+                  </marker>
+                </defs>
+
+                {data.states.map((state) => {
+                  const from = positions.get(state.id);
+                  if (!from) {
+                    return null;
+                  }
+
+                  return Object.entries(state.transitions).map(([symbol, targetId]) => {
+                    const to = positions.get(targetId);
+                    if (!to) {
+                      return null;
+                    }
+
+                    const dx = to.x - from.x;
+                    const dy = to.y - from.y;
+                    const distance = Math.hypot(dx, dy) || 1;
+                    const ux = dx / distance;
+                    const uy = dy / distance;
+                    const startX = from.x + ux * (cardWidth / 2);
+                    const startY = from.y + uy * (cardHeight / 2);
+                    const endX = to.x - ux * (cardWidth / 2);
+                    const endY = to.y - uy * (cardHeight / 2);
+                    const reverseExists = data.states.some(
+                      (candidate) => candidate.id === targetId && Object.prototype.hasOwnProperty.call(candidate.transitions, String(state.id))
+                    );
+                    const directionBias = state.id <= targetId ? 1 : -1;
+                    const curveOffset = reverseExists ? 24 * directionBias : 0;
+                    const nx = -uy;
+                    const ny = ux;
+                    const controlX = (startX + endX) / 2 + nx * curveOffset;
+                    const controlY = (startY + endY) / 2 + ny * curveOffset;
+                    const isCurved = curveOffset !== 0;
+                    const pathD = isCurved
+                      ? `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`
+                      : `M ${startX} ${startY} L ${endX} ${endY}`;
+                    const labelX = isCurved ? (startX + 2 * controlX + endX) / 4 : (startX + endX) / 2;
+                    const labelY = (isCurved ? (startY + 2 * controlY + endY) / 4 : (startY + endY) / 2) - 8;
+                    const edgeKey = `${state.id}-${targetId}-${symbol}`;
+
+                    return (
+                      <g key={edgeKey}>
+                        <path className="yapar-transition" d={pathD} markerEnd={`url(#${markerId})`} fill="none" />
+                        {renderEdgeLabel(symbol, labelX, labelY, "yapar-transition-label", "middle")}
+                      </g>
+                    );
+                  });
+                })}
+              </svg>
+
+              {data.states.map((state) => {
+                const center = positions.get(state.id);
+                if (!center) {
+                  return null;
+                }
+
+                const kernelItems = getKernelItems(state);
+                const closureItems = getClosureItems(state);
+                const isSelected = yaparSelectedStateId === state.id;
+
+                return (
+                  <button
+                    key={state.id}
+                    type="button"
+                    className={`yapar-state-card ${state.id === 0 ? "start" : ""} ${isSelected ? "selected" : ""}`}
+                    style={{ left: center.x, top: center.y }}
+                    onClick={() => {
+                      captureYaparDetailScroll();
+                      setYaparSelectedStateId(state.id);
+                    }}
+                    aria-pressed={isSelected}
+                    aria-label={`Estado S${state.id}. ${kernelItems.length} ítems de núcleo y ${closureItems.length} de cierre.`}
+                  >
+                    <div className="yapar-state-card-header">
+                      <span className="yapar-state-card-title">Estado S{state.id}</span>
+                      <span className="yapar-state-card-badge">{state.items.length} ítems</span>
+                    </div>
+                    <div className="yapar-state-card-body">
+                      <ul className="yapar-state-item-list yapar-state-item-list-compact yapar-state-item-list-kernel">
+                        {kernelItems.length > 0 ? (
+                          kernelItems.map((item, index) => (
+                            <li key={`kernel-${state.id}-${index}`} className="yapar-state-item-entry yapar-state-item-entry-kernel">
+                              <code>{item}</code>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="yapar-state-empty-mark yapar-state-empty-mark-kernel" aria-hidden="true" />
+                        )}
+                      </ul>
+                      <ul className="yapar-state-item-list yapar-state-item-list-compact yapar-state-item-list-closure">
+                        {closureItems.length > 0 ? (
+                          closureItems.map((item, index) => (
+                            <li key={`closure-${state.id}-${index}`} className="yapar-state-item-entry yapar-state-item-entry-closure">
+                              <code>{item}</code>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="yapar-state-empty-mark yapar-state-empty-mark-closure" aria-hidden="true" />
+                        )}
+                      </ul>
+                    </div>
+                  </button>
+                );
+              })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="yapar-items-sidebar card" ref={yaparDetailScrollRef}>
+          <div className="yapar-sidebar-topbar">
+            <h4 className="card-title">Detalle del estado</h4>
+            <div className="yapar-zoom-controls" role="group" aria-label="Control de zoom del autómata" style={{ marginTop: 6 }}>
+              <button type="button" className="btn yapar-zoom-btn" onClick={decreaseYaparZoom} aria-label="Reducir zoom" title="Reducir zoom">-</button>
+              <span className="yapar-zoom-value" aria-live="polite">{Math.round(yaparZoom * 100)}%</span>
+              <button type="button" className="btn yapar-zoom-btn" onClick={increaseYaparZoom} aria-label="Aumentar zoom" title="Aumentar zoom">+</button>
+              <button type="button" className="btn yapar-zoom-btn yapar-zoom-reset" onClick={resetYaparZoom} aria-label="Restablecer zoom" title="Restablecer zoom">1:1</button>
+            </div>
+          </div>
+          {selectedState === null ? (
+            <p className="hint">Haz clic en un estado para ver su núcleo y cierre.</p>
+          ) : (
+            <div className="yapar-state-detail">
+              <div className="selected-state-title">Estado S{selectedState.id}</div>
+              <section className="yapar-detail-section">
+                <h5>Núcleo del estado</h5>
+                <ul className="yapar-item-list">
+                  {getKernelItems(selectedState).length > 0 ? (
+                    getKernelItems(selectedState).map((item, index) => (
+                      <li key={`detail-kernel-${selectedState.id}-${index}`} className="yapar-item-entry yapar-item-entry-kernel">
+                        <code>{item}</code>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="hint">Sin núcleo</li>
+                  )}
+                </ul>
+              </section>
+
+              <section className="yapar-detail-section">
+                <h5>Cierre del estado</h5>
+                <ul className="yapar-item-list">
+                  {getClosureItems(selectedState).length > 0 ? (
+                    getClosureItems(selectedState).map((item, index) => (
+                      <li key={`detail-closure-${selectedState.id}-${index}`} className="yapar-item-entry yapar-item-entry-closure">
+                        <code>{item}</code>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="hint">Sin cierre</li>
+                  )}
+                </ul>
+              </section>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function renderGraphView(): JSX.Element {
     if (!activeResultAction || !activeResultObject) {
       return <div className="graph-empty">Ejecuta una etapa para ver una visualización.</div>;
@@ -1501,31 +1802,7 @@ export function App() {
 
     if (activeResultAction === "yaparAutomaton") {
       const parsed = activeResultObject as YaparAutomatonResult;
-      const panel = buildYaparAutomatonPanel(parsed);
-      return (
-        <div className="yapar-automaton-container">
-          <div className="yapar-graph-wrapper">
-            {renderAutomatonSvg(panel)}
-          </div>
-          <div className="yapar-items-sidebar card">
-            <h4 className="card-title">Items del Estado LR(0)</h4>
-            {yaparSelectedStateId === null ? (
-              <p className="hint">Haz clic en un estado para ver su conjunto de ítems canónicos.</p>
-            ) : (
-              <div>
-                <div className="selected-state-title">Estado S{yaparSelectedStateId}</div>
-                <ul className="yapar-item-list">
-                  {parsed.states.find(s => s.id === yaparSelectedStateId)?.items.map((item, idx) => (
-                    <li key={idx} className="yapar-item-entry">
-                      <code>{item}</code>
-                    </li>
-                  )) || <li className="hint">No hay items</li>}
-                </ul>
-              </div>
-            )}
-          </div>
-        </div>
-      );
+      return renderYaparAutomatonView(parsed);
     }
 
     return <div className="graph-empty">Esta etapa no tiene visualización gráfica todavía.</div>;
@@ -1888,7 +2165,7 @@ export function App() {
       if (name.endsWith(".yal")) {
         setYalFilePath(path);
       }
-      if (name.endsWith(".yapar")) {
+      if (name.endsWith(".yalp") || name.endsWith(".yapar")) {
         setYaparFilePath(path);
       }
       if (name.endsWith(".txt")) {
@@ -2006,6 +2283,7 @@ export function App() {
     const yalPath = yalFilePath;
 
     try {
+      setActiveWorkflow("yalex");
       setIsRunningAction(true);
       setValidationChecks([]);
       setValidationRunAt("");
@@ -2042,7 +2320,7 @@ export function App() {
     }
 
     if (!yaparFilePath.trim()) {
-      pushOutput("error", "Debe ingresar la ruta del archivo .yapar.");
+      pushOutput("error", "Debe ingresar la ruta del archivo .yalp.");
       return false;
     }
 
@@ -2057,6 +2335,7 @@ export function App() {
     }
 
     try {
+      setActiveWorkflow("yapar");
       setIsRunningAction(true);
       pushOutput("info", "Iniciando ejecución secuencial del pipeline YAPar.");
 
@@ -2350,7 +2629,110 @@ export function App() {
   const pipelineStatus = isRunningAction ? "running" : "idle";
   const pipelineStatusLabel = isRunningAction ? "Procesando" : "Listo";
   const explorerItemCount = workspaceRoot ? Object.values(treeMap).flat().length : 0;
-  const resultSummaryLabel = activeResultAction ? getActionLabel(activeResultAction) : "Sin etapa";
+
+  function ResultPanel({ full }: { full?: boolean }) {
+    return (
+      <section className={full ? "result-panel result-panel-full" : "result-panel sidepanel-results"}>
+        <div className="result-header">
+          <div className="result-header-top">
+            <div className="panel-title panel-title-tight">Resultado</div>
+            <span className="result-state">
+              {activeResultAction ? getActionLabel(activeResultAction) : "Sin etapa seleccionada"}
+            </span>
+          </div>
+          {visibleResultActions.length > 0 && (
+            <div className="result-tabs" role="tablist" aria-label="Etapas del pipeline">
+              {visibleResultActions.map((action) => {
+                const isActive = action === activeResultAction;
+                return (
+                  <button
+                    key={action}
+                    role="tab"
+                    type="button"
+                    className={`result-tab-btn ${isActive ? "active" : ""}`}
+                    aria-selected={isActive}
+                    onClick={() => setActiveResultAction(action)}
+                  >
+                    {getActionLabel(action)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="result-view-toggle">
+            <button
+              type="button"
+              className={`result-view-btn ${resultViewMode === "json" ? "active" : ""}`}
+              onClick={() => setResultViewMode("json")}
+            >
+              JSON
+            </button>
+            <button
+              type="button"
+              className={`result-view-btn ${resultViewMode === "graph" ? "active" : ""}`}
+              onClick={() => setResultViewMode("graph")}
+              disabled={!canRenderGraph}
+            >
+              Gráfico
+            </button>
+            <button
+              type="button"
+              className={`result-view-btn ${resultViewMode === "code" ? "active" : ""}`}
+              onClick={() => setResultViewMode("code")}
+              disabled={!canRenderCode}
+            >
+              Código Python
+            </button>
+            {resultViewMode === "graph" && activeResultAction === "dfa" && (
+              <>
+                <button
+                  type="button"
+                  className={`result-view-btn ${dfaLabelDensity === "compact" ? "active" : ""}`}
+                  onClick={() => setDfaLabelDensity("compact")}
+                >
+                  Compacto
+                </button>
+                <button
+                  type="button"
+                  className={`result-view-btn ${dfaLabelDensity === "detailed" ? "active" : ""}`}
+                  onClick={() => setDfaLabelDensity("detailed")}
+                >
+                  Detallado
+                </button>
+                <button
+                  type="button"
+                  className={`result-view-btn ${dfaEdgeLabelMode === "ranges" ? "active" : ""}`}
+                  onClick={() => setDfaEdgeLabelMode("ranges")}
+                >
+                  Rangos
+                </button>
+                <button
+                  type="button"
+                  className={`result-view-btn ${dfaEdgeLabelMode === "aliases" ? "active" : ""}`}
+                  onClick={() => setDfaEdgeLabelMode("aliases")}
+                >
+                  Alias
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {resultViewMode === "graph" && canRenderGraph ? (
+          <div className="result-graph-view">{renderGraphView()}</div>
+        ) : resultViewMode === "code" && canRenderCode ? (
+          <pre className="result-view">
+            {isLoadingGeneratedCode ? "Cargando código generado..." : generatedPythonCode}
+          </pre>
+        ) : activeResultAction === "yaparTable" && activeResultObject ? (
+          renderSlrTable(activeResultObject as YaparTableResult)
+        ) : activeResultAction === "yaparParse" && activeResultObject ? (
+          renderParserTrace(activeResultObject as YaparParseResult)
+        ) : (
+          <pre className="result-view">{activeResultText}</pre>
+        )}
+      </section>
+    );
+  }
 
   return (
     <>
@@ -2367,7 +2749,10 @@ export function App() {
           </div>
         </div>
       )}
-    <div className="shell" style={{ ['--output-panel-height' as any]: `${outputPanelHeight}px` }}>
+    <div
+      className={`shell ${isOutputVisible ? "" : "shell-output-hidden"}`}
+      style={{ ['--output-panel-height' as any]: `${effectiveOutputPanelHeight}px` }}
+    >
       <header className="topbar">
         <div className="topbar-brand">
           <h1>YALex Studio</h1>
@@ -2378,30 +2763,64 @@ export function App() {
             {pipelineStatusLabel}
           </span>
           <div className="topbar-actions">
-          <button
-            className="topbar-action-btn btn"
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              void saveActiveTab();
-            }}
-          >
-            <span
-              className="panel-icon topbar-icon"
-              style={{
-                WebkitMaskImage: `url(${saveIcon})`,
-                maskImage: `url(${saveIcon})`,
+            <button
+              className="topbar-action-btn btn"
+              type="button"
+              onClick={() => void runFullPipeline()}
+              disabled={!canRunFullPipeline}
+              aria-disabled={!canRunFullPipeline}
+              title={canRunFullPipeline ? "Ejecutar pipeline YALex" : "Carga .yal e input para ejecutar el pipeline YALex"}
+            >
+              Pipeline YALex
+            </button>
+            <button
+              className="topbar-action-btn btn"
+              type="button"
+              onClick={() => void runYaparPipeline()}
+              disabled={!canRunYaparPipeline}
+              aria-disabled={!canRunYaparPipeline}
+              title={canRunYaparPipeline ? "Ejecutar pipeline YAPar" : "Carga .yal, .yalp e input para ejecutar el pipeline YAPar"}
+            >
+              Pipeline YAPar
+            </button>
+            <button
+              className="topbar-action-btn btn"
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                void saveActiveTab();
               }}
-            />
-            Guardar
-          </button>
-        </div>
+            >
+              <span
+                className="panel-icon topbar-icon"
+                style={{
+                  WebkitMaskImage: `url(${saveIcon})`,
+                  maskImage: `url(${saveIcon})`,
+                }}
+              />
+              Guardar
+            </button>
+            <button
+              className="topbar-action-btn btn"
+              type="button"
+              onClick={() => setIsOutputVisible((current) => !current)}
+              aria-controls="output-panel"
+              aria-expanded={isOutputVisible}
+              aria-label={isOutputVisible ? "Ocultar output" : "Mostrar output"}
+              title={isOutputVisible ? "Ocultar output" : "Mostrar output"}
+            >
+              {isOutputVisible ? "Ocultar output" : "Mostrar output"}
+            </button>
+            
+          </div>
         </div>
       </header>
 
       <main
         className="workspace"
-        style={{ gridTemplateColumns: `52px ${sidebarWidth}px 6px 1fr` }}
+        style={{
+          gridTemplateColumns: `52px ${leftSidebarView === "results" ? 0 : sidebarWidth}px ${leftSidebarView === "results" ? 0 : 6}px 1fr`,
+        }}
       >
         <nav className="activity-bar" aria-label="Navegación lateral">
           <button
@@ -2439,17 +2858,6 @@ export function App() {
         <aside className="sidepanel">
           {leftSidebarView === "explorer" && (
             <>
-              <div className="panel-hero">
-                <div className="panel-hero-copy">
-                  <span className="panel-hero-kicker">Workspace</span>
-                  <h2>Explorer</h2>
-                  <p>Abre, crea y navega tus archivos YALex desde una vista compacta.</p>
-                </div>
-                <div className="panel-hero-badge">
-                  <strong>{explorerItemCount}</strong>
-                  <span>items</span>
-                </div>
-              </div>
               <div className="panel-title">
                 <span>Explorer</span>
                 <div className="panel-title-actions">
@@ -2507,18 +2915,6 @@ export function App() {
 
           {leftSidebarView === "pipeline" && (
             <div className="command-panel">
-              <div className="panel-hero">
-                <div className="panel-hero-copy">
-                  <span className="panel-hero-kicker">Ejecución</span>
-                  <h2>Pipeline</h2>
-                  <p>Configura los archivos de trabajo y ejecuta el pipeline completo.</p>
-                </div>
-                <div className="panel-hero-badge">
-                  <strong>{pipelineStatusLabel}</strong>
-                  <span>estado</span>
-                </div>
-              </div>
-
               <div className="workflow-selector-tab">
                 <button
                   type="button"
@@ -2613,11 +3009,11 @@ export function App() {
                       <h3 className="section-title">Archivos de trabajo</h3>
 
                       <label className="field">
-                        <span className="field-label">Archivo .yapar</span>
+                        <span className="field-label">Archivo .yalp</span>
                         <input
                           value={yaparFilePath}
                           onChange={(event) => setYaparFilePath(event.target.value)}
-                          placeholder="Ruta al archivo .yapar"
+                          placeholder="Ruta al archivo .yalp"
                         />
                       </label>
 
@@ -2688,118 +3084,7 @@ export function App() {
             </div>
           )}
 
-          {leftSidebarView === "results" && (
-            <section className="result-panel sidepanel-results">
-              <div className="panel-hero panel-hero-result">
-                <div className="panel-hero-copy">
-                  <span className="panel-hero-kicker">Salida</span>
-                  <h2>Resultados</h2>
-                  <p>Alterna entre JSON, código y grafo sin perder el contexto del pipeline.</p>
-                </div>
-                <div className="panel-hero-badge">
-                  <strong>{resultSummaryLabel}</strong>
-                  <span>vista</span>
-                </div>
-              </div>
-              <div className="result-header">
-                <div className="result-header-top">
-                  <div className="panel-title panel-title-tight">Resultado</div>
-                  <span className="result-state">
-                    {activeResultAction ? getActionLabel(activeResultAction) : "Sin etapa seleccionada"}
-                  </span>
-                </div>
-                {visibleResultActions.length > 0 && (
-                  <div className="result-tabs" role="tablist" aria-label="Etapas del pipeline">
-                    {visibleResultActions.map((action) => {
-                      const isActive = action === activeResultAction;
-                      return (
-                        <button
-                          key={action}
-                          role="tab"
-                          type="button"
-                          className={`result-tab-btn ${isActive ? "active" : ""}`}
-                          aria-selected={isActive}
-                          onClick={() => setActiveResultAction(action)}
-                        >
-                          {getActionLabel(action)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="result-view-toggle">
-                  <button
-                    type="button"
-                    className={`result-view-btn ${resultViewMode === "json" ? "active" : ""}`}
-                    onClick={() => setResultViewMode("json")}
-                  >
-                    JSON
-                  </button>
-                  <button
-                    type="button"
-                    className={`result-view-btn ${resultViewMode === "graph" ? "active" : ""}`}
-                    onClick={() => setResultViewMode("graph")}
-                    disabled={!canRenderGraph}
-                  >
-                    Gráfico
-                  </button>
-                  <button
-                    type="button"
-                    className={`result-view-btn ${resultViewMode === "code" ? "active" : ""}`}
-                    onClick={() => setResultViewMode("code")}
-                    disabled={!canRenderCode}
-                  >
-                    Código Python
-                  </button>
-                  {resultViewMode === "graph" && activeResultAction === "dfa" && (
-                    <>
-                      <button
-                        type="button"
-                        className={`result-view-btn ${dfaLabelDensity === "compact" ? "active" : ""}`}
-                        onClick={() => setDfaLabelDensity("compact")}
-                      >
-                        Compacto
-                      </button>
-                      <button
-                        type="button"
-                        className={`result-view-btn ${dfaLabelDensity === "detailed" ? "active" : ""}`}
-                        onClick={() => setDfaLabelDensity("detailed")}
-                      >
-                        Detallado
-                      </button>
-                      <button
-                        type="button"
-                        className={`result-view-btn ${dfaEdgeLabelMode === "ranges" ? "active" : ""}`}
-                        onClick={() => setDfaEdgeLabelMode("ranges")}
-                      >
-                        Rangos
-                      </button>
-                      <button
-                        type="button"
-                        className={`result-view-btn ${dfaEdgeLabelMode === "aliases" ? "active" : ""}`}
-                        onClick={() => setDfaEdgeLabelMode("aliases")}
-                      >
-                        Alias
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              {resultViewMode === "graph" && canRenderGraph ? (
-                <div className="result-graph-view">{renderGraphView()}</div>
-              ) : resultViewMode === "code" && canRenderCode ? (
-                <pre className="result-view">
-                  {isLoadingGeneratedCode ? "Cargando código generado..." : generatedPythonCode}
-                </pre>
-              ) : activeResultAction === "yaparTable" && activeResultObject ? (
-                renderSlrTable(activeResultObject as YaparTableResult)
-              ) : activeResultAction === "yaparParse" && activeResultObject ? (
-                renderParserTrace(activeResultObject as YaparParseResult)
-              ) : (
-                <pre className="result-view">{activeResultText}</pre>
-              )}
-            </section>
-          )}
+          {leftSidebarView === "results" && <ResultPanel />}
         </aside>
 
         <div
@@ -2820,8 +3105,16 @@ export function App() {
           }
         />
 
-        <section className="editor-area editor-area-simple">
-          <div className="tabs">
+        <section
+          className={`editor-area editor-area-simple ${leftSidebarView === "results" ? "editor-area-results-mode" : ""}`}
+        >
+          {leftSidebarView === "results" ? (
+            <div className="results-fullwidth-container">
+              <ResultPanel full />
+            </div>
+          ) : (
+            <>
+              <div className="tabs">
             {tabs.length === 0 ? (
               <span className="tabs-empty">Sin archivos abiertos</span>
             ) : (
@@ -2847,44 +3140,46 @@ export function App() {
             )}
           </div>
 
-          <div className="editor-shell">
-            {activeTab ? (
-              <Editor
-                beforeMount={registerEditorTheme}
-                language={languageFromFileName(activeTab.name)}
-                value={activeTab.content}
-                onChange={(value: string | undefined) => updateActiveTabContent(value ?? "")}
-                theme="yalex-dark"
-                options={{
-                  fontSize: 14,
-                  fontFamily: "Cascadia Code, Consolas, monospace",
-                  minimap: { enabled: false },
-                  automaticLayout: true,
-                  tabSize: 2,
-                  insertSpaces: true,
-                  lineNumbers: "on",
-                  wordWrap: "on",
-                  smoothScrolling: true,
-                  scrollBeyondLastLine: false,
-                }}
-              />
-            ) : (
-              <div className="editor-empty">
-                <strong>Inicio rápido</strong>
-                <br />
-                1) Ve a Explorer en la barra lateral izquierda y abre un archivo .yal.
-                <br />
-                2) Usa Pipeline para ejecutar el flujo.
-                <br />
-                3) Consulta Resultados y Output para validar.
+              <div className="editor-shell">
+                {activeTab ? (
+                  <Editor
+                    beforeMount={registerEditorTheme}
+                    language={languageFromFileName(activeTab.name)}
+                    value={activeTab.content}
+                    onChange={(value: string | undefined) => updateActiveTabContent(value ?? "")}
+                    theme="yalex-dark"
+                    options={{
+                      fontSize: 14,
+                      fontFamily: "Cascadia Code, Consolas, monospace",
+                      minimap: { enabled: false },
+                      automaticLayout: true,
+                      tabSize: 2,
+                      insertSpaces: true,
+                      lineNumbers: "on",
+                      wordWrap: "on",
+                      smoothScrolling: true,
+                      scrollBeyondLastLine: false,
+                    }}
+                  />
+                ) : (
+                  <div className="editor-empty">
+                    <strong>Inicio rápido</strong>
+                    <br />
+                    1) Ve a Explorer en la barra lateral izquierda y abre un archivo .yal.
+                    <br />
+                    2) Usa Pipeline para ejecutar el flujo.
+                    <br />
+                    3) Consulta Resultados y Output para validar.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </section>
       </main>
 
       <div
-        className="splitter splitter-horizontal shell-horizontal-splitter"
+        className={`splitter splitter-horizontal shell-horizontal-splitter ${isOutputVisible ? "" : "shell-horizontal-splitter-hidden"}`}
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize output"
@@ -2901,7 +3196,7 @@ export function App() {
         }
       />
 
-      <section className="output-panel">
+      <section className={`output-panel ${isOutputVisible ? "" : "output-panel-hidden"}`} id="output-panel" aria-hidden={!isOutputVisible}>
         <div className="panel-title output-header">
           <span>Output</span>
           <span className="output-counter">{output.length} eventos</span>

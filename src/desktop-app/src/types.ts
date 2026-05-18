@@ -43,6 +43,8 @@ export type YaparSpecResult = {
 export type YaparState = {
   id: number;
   items: string[];
+  kernel_items?: string[];
+  closure_items?: string[];
   transitions: Record<string, number>;
 };
 

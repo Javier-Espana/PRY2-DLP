@@ -3,7 +3,7 @@
 
 Allows users to:
 1. Generate a lexer from a .yal file
-2. Generate a parser from a .yapar file
+2. Generate a parser from a .yalp file
 3. Run the generated lexer+parser on an input file
 """
 import argparse
@@ -64,7 +64,7 @@ def action_generate_lexer(yal_path: Path, output_path: Path) -> None:
 
 
 def action_analyze_yapar(yapar_path: Path) -> None:
-    """Analyze and display information about a .yapar specification."""
+    """Analyze and display information about a .yalp specification."""
     print(f"\n{'='*70}")
     print(f"  YAPar Analysis: {yapar_path}")
     print(f"{'='*70}")
@@ -84,7 +84,7 @@ def action_analyze_yapar(yapar_path: Path) -> None:
 
 
 def action_generate_parser(yapar_path: Path, output_path: Path) -> None:
-    """Generate standalone parser from .yapar specification."""
+    """Generate standalone parser from .yalp specification."""
     print(f"\nGenerating parser from {yapar_path}...")
 
     source = yapar_path.read_text()
@@ -128,17 +128,17 @@ def main():
     gen_lexer.add_argument("-o", "--output", type=Path, required=True, help="Output .py file")
 
     # Analyze YAPar
-    analyze_yapar = subparsers.add_parser("analyze-yapar", help="Analyze .yapar specification")
-    analyze_yapar.add_argument("yapar_file", type=Path, help=".yapar file to analyze")
+    analyze_yapar = subparsers.add_parser("analyze-yapar", help="Analyze .yalp specification")
+    analyze_yapar.add_argument("yapar_file", type=Path, help=".yalp file to analyze")
 
     # Generate Parser
-    gen_parser = subparsers.add_parser("gen-parser", help="Generate parser from .yapar")
-    gen_parser.add_argument("yapar_file", type=Path, help=".yapar file")
+    gen_parser = subparsers.add_parser("gen-parser", help="Generate parser from .yalp")
+    gen_parser.add_argument("yapar_file", type=Path, help=".yalp file")
     gen_parser.add_argument("-o", "--output", type=Path, required=True, help="Output .py file")
 
     # Visualize Automaton
     visualize = subparsers.add_parser("visualize", help="Generate LR(0) automaton visualization")
-    visualize.add_argument("yapar_file", type=Path, help=".yapar file")
+    visualize.add_argument("yapar_file", type=Path, help=".yalp file")
     visualize.add_argument("-o", "--output", type=Path, default=Path("automaton.dot"), 
                           help="Output .dot file (default: automaton.dot)")
 

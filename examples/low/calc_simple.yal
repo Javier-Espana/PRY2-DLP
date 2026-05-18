@@ -3,7 +3,7 @@
 let digit = ['0'-'9']
 let letter = ['a'-'z''A'-'Z''_']
 let id = letter (letter | digit)*
-let ws = [' ''\t''\n''\r']+
+let ws = [' ''\t''\r']+
 
 rule tokens =
 	ws          { skip() }
@@ -15,3 +15,5 @@ rule tokens =
 | '/'         { return "DIV" }
 | '('         { return "LPAREN" }
 | ')'         { return "RPAREN" }
+| '='         { return "ASSIGN" }
+| '\n'       { return "NEWLINE" }

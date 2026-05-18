@@ -428,6 +428,26 @@ def _run_action(payload: dict) -> dict:
             raise ValueError("Debe enviar 'yalPath' o 'yalSource' para tokenizar")
 
         spec_yal, direct_yal, dfa_yal = _build_pipeline_from_source(yal_source)
+        
+        # Validation: Check that all tokens defined in YAPar are also defined in YALex
+        import re
+        yalex_tokens = set()
+        if spec_yal.rule:
+            for alt in spec_yal.rule.alternatives:
+                if alt.action:
+                    matches = re.findall(r'return\s*\(?\s*["\']([^"\']+)["\']', alt.action)
+                    yalex_tokens.update(matches)
+        
+        missing_tokens = [t for t in grammar.tokens if t not in yalex_tokens]
+        if missing_tokens:
+            token_errs = [f"Error de validación: El token '{t}' definido en YAPar no está definido en la especificación YALex" for t in missing_tokens]
+            return {
+                "success": False,
+                "tokens": [],
+                "errors": token_errs,
+                "trace": [],
+            }
+        
         table_yal = dfa_to_table(dfa_yal)
 
         tokens, errors_yal, _ = tokenize_with_trace(

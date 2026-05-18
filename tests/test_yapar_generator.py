@@ -1,7 +1,15 @@
 """Tests for YAPar parser generator."""
+import sys
 import unittest
 from pathlib import Path
-from src.yapar_generator import parse_yapar, build_lr0_automaton, LRTable
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from yapar_generator import parse_yapar, build_lr0_automaton, LRTable
 
 
 class TestYAParParser(unittest.TestCase):
@@ -83,6 +91,20 @@ s : A ;
         # Should have action and goto tables for each state
         self.assertEqual(len(table.action), len(automaton.states))
         self.assertEqual(len(table.goto), len(automaton.states))
+    def test_yapar_token_validation_yalex(self):
+        """Test that validation fails if a YAPar token is not defined in YALex."""
+        from bridge_cli import _run_action
+        
+        payload = {
+            "action": "yaparParse",
+            "yaparSource": "%token ID NUMBER MISSING_TOKEN\n%start s\n%%\ns : ID ;\n%%",
+            "yalSource": "let digit = ['0'-'9']\nrule tokens =\n  digit+ { return 'NUMBER' }\n  | ['a'-'z']+ { return 'ID' }",
+            "inputText": "hello"
+        }
+        
+        result = _run_action(payload)
+        self.assertFalse(result["success"])
+        self.assertTrue(any("MISSING_TOKEN" in err for err in result["errors"]))
 
 
 if __name__ == "__main__":

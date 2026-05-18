@@ -317,20 +317,24 @@ function renderEdgeLabel(
 }
 
 function buildSingleAutomatonPanel(
-  source: Record<string, unknown>,
+  source: unknown,
   title: string,
-  includeDfaAcceptMetadata = false,
-  dfaEdgeLabelMode: DfaEdgeLabelMode = "ranges"
+  includeDfaAcceptMetadata: boolean,
+  dfaEdgeLabelMode: DfaEdgeLabelMode
 ): GraphPanel | null {
-  const stateSet = new Set<string>();
+  const src = asObject(source);
+  if (!src) return null;
+  // keep legacy name used below
+  const sourceObj: Record<string, unknown> = src;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
+  const stateSet = new Set<string>();
 
-  const startState = asNumber(source.start_state);
-  const acceptSingle = asNumber(source.accept_state);
+  const startState = asNumber(sourceObj.start_state);
+  const acceptSingle = asNumber(sourceObj.accept_state);
   const acceptStatesMulti = new Set<number>();
 
-  for (const acceptItem of asArray(source.accept_states)) {
+  for (const acceptItem of asArray(sourceObj.accept_states)) {
     const acceptObj = asObject(acceptItem);
     if (!acceptObj) continue;
     const state = asNumber(acceptObj.state);
@@ -339,7 +343,7 @@ function buildSingleAutomatonPanel(
     }
   }
 
-  for (const stateItem of asArray(source.states)) {
+  for (const stateItem of asArray(sourceObj.states)) {
     const stateObj = asObject(stateItem);
     if (stateObj && includeDfaAcceptMetadata) {
       const sid = asNumber(stateObj.id);
@@ -378,7 +382,7 @@ function buildSingleAutomatonPanel(
     }
   >();
 
-  for (const transitionItem of asArray(source.transitions)) {
+  for (const transitionItem of asArray(sourceObj.transitions)) {
     const transitionObj = asObject(transitionItem);
     if (!transitionObj) continue;
 
@@ -600,9 +604,16 @@ export function App() {
   const workbenchSplitRef = useRef<HTMLDivElement | null>(null);
   const outputLogRef = useRef<HTMLDivElement | null>(null);
   const yaparScrollRef = useRef<HTMLDivElement | null>(null);
-  const yaparScrollRestoreRef = useRef<{ left: number; top: number } | null>(null);
+  const yaparZoomAnchorRef = useRef<{
+    contentX: number;
+    contentY: number;
+    viewportX: number;
+    viewportY: number;
+    zoom: number;
+  } | null>(null);
   const yaparDetailScrollRef = useRef<HTMLDivElement | null>(null);
   const yaparDetailScrollRestoreRef = useRef<{ left: number; top: number } | null>(null);
+  const yaparScrollRestoreRef = useRef<{ left: number; top: number } | null>(null);
   const restoredSizes = useMemo(
     () =>
       parseSavedSizes(
@@ -699,14 +710,40 @@ export function App() {
 
   const activeResultObject = activeResultAction ? actionResultObjects[activeResultAction] : null;
   const effectiveOutputPanelHeight = isOutputVisible ? outputPanelHeight : 0;
-  const captureYaparScroll = () => {
-    if (!yaparScrollRef.current) {
-      return;
-    }
-    yaparScrollRestoreRef.current = {
-      left: yaparScrollRef.current.scrollLeft,
-      top: yaparScrollRef.current.scrollTop,
-    };
+
+  const updateYaparZoom = (
+    computeNext: (current: number) => number,
+    anchorClient?: { x: number; y: number }
+  ) => {
+    const container = yaparScrollRef.current;
+    setYaparZoom((current) => {
+      const next = Math.min(2, Math.max(0.2, Math.round(computeNext(current) * 10) / 10));
+      if (next === current) {
+        return current;
+      }
+
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const viewportX = anchorClient
+          ? Math.min(Math.max(anchorClient.x - rect.left, 0), rect.width)
+          : rect.width / 2;
+        const viewportY = anchorClient
+          ? Math.min(Math.max(anchorClient.y - rect.top, 0), rect.height)
+          : rect.height / 2;
+
+        yaparZoomAnchorRef.current = {
+          contentX: container.scrollLeft + viewportX,
+          contentY: container.scrollTop + viewportY,
+          viewportX,
+          viewportY,
+          zoom: current,
+        };
+      } else {
+        yaparZoomAnchorRef.current = null;
+      }
+
+      return next;
+    });
   };
 
   const handleYaparWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -716,22 +753,18 @@ export function App() {
       return;
     }
     e.preventDefault();
-    captureYaparScroll();
     const step = 0.1;
     const change = e.deltaY > 0 ? -step : step;
-    setYaparZoom((current) => Math.min(2, Math.max(0.1, Math.round((current + change) * 10) / 10)));
+    updateYaparZoom((current) => current + change, { x: e.clientX, y: e.clientY });
   };
   const increaseYaparZoom = () => {
-    captureYaparScroll();
-    setYaparZoom((current) => Math.min(2, Math.round((current + 0.1) * 10) / 10));
+    updateYaparZoom((current) => current + 0.1);
   };
   const decreaseYaparZoom = () => {
-    captureYaparScroll();
-    setYaparZoom((current) => Math.max(0.1, Math.round((current - 0.1) * 10) / 10));
+    updateYaparZoom((current) => current - 0.1);
   };
   const resetYaparZoom = () => {
-    captureYaparScroll();
-    setYaparZoom(1);
+    updateYaparZoom(() => 1);
   };
   const captureYaparDetailScroll = () => {
     if (!yaparDetailScrollRef.current) {
@@ -740,6 +773,16 @@ export function App() {
     yaparDetailScrollRestoreRef.current = {
       left: yaparDetailScrollRef.current.scrollLeft,
       top: yaparDetailScrollRef.current.scrollTop,
+    };
+  };
+
+  const captureYaparScroll = () => {
+    if (!yaparScrollRef.current) {
+      return;
+    }
+    yaparScrollRestoreRef.current = {
+      left: yaparScrollRef.current.scrollLeft,
+      top: yaparScrollRef.current.scrollTop,
     };
   };
 
@@ -754,19 +797,26 @@ export function App() {
   const yaparGeneratedOutputPath = yaparGenerateRoot ? asString(yaparGenerateRoot.outputPath) : null;
 
   useEffect(() => {
-    if (!yaparScrollRestoreRef.current || !yaparScrollRef.current) {
+    if (!yaparZoomAnchorRef.current || !yaparScrollRef.current) {
       return;
     }
 
-    const { left, top } = yaparScrollRestoreRef.current;
-    yaparScrollRestoreRef.current = null;
+    const anchor = yaparZoomAnchorRef.current;
+    yaparZoomAnchorRef.current = null;
+    const zoomRatio = yaparZoom / (anchor.zoom || 1);
 
     requestAnimationFrame(() => {
       if (!yaparScrollRef.current) {
         return;
       }
-      yaparScrollRef.current.scrollLeft = left;
-      yaparScrollRef.current.scrollTop = top;
+
+      const targetLeft = anchor.contentX * zoomRatio - anchor.viewportX;
+      const targetTop = anchor.contentY * zoomRatio - anchor.viewportY;
+      const maxLeft = Math.max(0, yaparScrollRef.current.scrollWidth - yaparScrollRef.current.clientWidth);
+      const maxTop = Math.max(0, yaparScrollRef.current.scrollHeight - yaparScrollRef.current.clientHeight);
+
+      yaparScrollRef.current.scrollLeft = Math.min(Math.max(targetLeft, 0), maxLeft);
+      yaparScrollRef.current.scrollTop = Math.min(Math.max(targetTop, 0), maxTop);
     });
   }, [yaparZoom]);
 
@@ -784,6 +834,25 @@ export function App() {
       }
       yaparDetailScrollRef.current.scrollLeft = left;
       yaparDetailScrollRef.current.scrollTop = top;
+    });
+  }, [yaparSelectedStateId]);
+
+  useEffect(() => {
+    if (!yaparScrollRestoreRef.current || !yaparScrollRef.current) {
+      return;
+    }
+
+    const { left, top } = yaparScrollRestoreRef.current;
+    yaparScrollRestoreRef.current = null;
+
+    requestAnimationFrame(() => {
+      if (!yaparScrollRef.current) {
+        return;
+      }
+      const maxLeft = Math.max(0, yaparScrollRef.current.scrollWidth - yaparScrollRef.current.clientWidth);
+      const maxTop = Math.max(0, yaparScrollRef.current.scrollHeight - yaparScrollRef.current.clientHeight);
+      yaparScrollRef.current.scrollLeft = Math.min(Math.max(left, 0), maxLeft);
+      yaparScrollRef.current.scrollTop = Math.min(Math.max(top, 0), maxTop);
     });
   }, [yaparSelectedStateId]);
 
@@ -1627,52 +1696,81 @@ export function App() {
                   </marker>
                 </defs>
 
-                {data.states.map((state) => {
-                  const from = positions.get(state.id);
-                  if (!from) {
-                    return null;
-                  }
+                {/* Precompute transitions and label anchors so we can detect collisions and offset labels */}
+                {(() => {
+                  const entries: Array<{
+                    edgeKey: string;
+                    pathD: string;
+                    label: string;
+                    labelX: number;
+                    labelY: number;
+                  }> = [];
 
-                  return Object.entries(state.transitions).map(([symbol, targetId]) => {
-                    const to = positions.get(targetId);
-                    if (!to) {
-                      return null;
-                    }
+                  data.states.forEach((state) => {
+                    const from = positions.get(state.id);
+                    if (!from) return;
+                    Object.entries(state.transitions).forEach(([symbol, targetId]) => {
+                      const to = positions.get(targetId);
+                      if (!to) return;
 
-                    const dx = to.x - from.x;
-                    const dy = to.y - from.y;
-                    const distance = Math.hypot(dx, dy) || 1;
-                    const ux = dx / distance;
-                    const uy = dy / distance;
-                    const startX = from.x + ux * (cardWidth / 2);
-                    const startY = from.y + uy * (cardHeight / 2);
-                    const endX = to.x - ux * (cardWidth / 2);
-                    const endY = to.y - uy * (cardHeight / 2);
-                    const reverseExists = data.states.some(
-                      (candidate) => candidate.id === targetId && Object.prototype.hasOwnProperty.call(candidate.transitions, String(state.id))
-                    );
-                    const directionBias = state.id <= targetId ? 1 : -1;
-                    const curveOffset = reverseExists ? 24 * directionBias : 0;
-                    const nx = -uy;
-                    const ny = ux;
-                    const controlX = (startX + endX) / 2 + nx * curveOffset;
-                    const controlY = (startY + endY) / 2 + ny * curveOffset;
-                    const isCurved = curveOffset !== 0;
-                    const pathD = isCurved
-                      ? `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`
-                      : `M ${startX} ${startY} L ${endX} ${endY}`;
-                    const labelX = isCurved ? (startX + 2 * controlX + endX) / 4 : (startX + endX) / 2;
-                    const labelY = (isCurved ? (startY + 2 * controlY + endY) / 4 : (startY + endY) / 2) - 8;
-                    const edgeKey = `${state.id}-${targetId}-${symbol}`;
+                      const dx = to.x - from.x;
+                      const dy = to.y - from.y;
+                      const distance = Math.hypot(dx, dy) || 1;
+                      const ux = dx / distance;
+                      const uy = dy / distance;
+                      const startX = from.x + ux * (cardWidth / 2);
+                      const startY = from.y + uy * (cardHeight / 2);
+                      const endX = to.x - ux * (cardWidth / 2);
+                      const endY = to.y - uy * (cardHeight / 2);
+                      const reverseExists = data.states.some(
+                        (candidate) => candidate.id === targetId && Object.prototype.hasOwnProperty.call(candidate.transitions, String(state.id))
+                      );
+                      const directionBias = state.id <= targetId ? 1 : -1;
+                      const curveOffset = reverseExists ? 24 * directionBias : 0;
+                      const nx = -uy;
+                      const ny = ux;
+                      const controlX = (startX + endX) / 2 + nx * curveOffset;
+                      const controlY = (startY + endY) / 2 + ny * curveOffset;
+                      const isCurved = curveOffset !== 0;
+                      const pathD = isCurved
+                        ? `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`
+                        : `M ${startX} ${startY} L ${endX} ${endY}`;
+                      const labelX = isCurved ? (startX + 2 * controlX + endX) / 4 : (startX + endX) / 2;
+                      const labelY = (isCurved ? (startY + 2 * controlY + endY) / 4 : (startY + endY) / 2) - 8;
+                      const edgeKey = `${state.id}-${targetId}-${symbol}`;
 
-                    return (
-                      <g key={edgeKey}>
-                        <path className="yapar-transition" d={pathD} markerEnd={`url(#${markerId})`} fill="none" />
-                        {renderEdgeLabel(symbol, labelX, labelY, "yapar-transition-label", "middle")}
-                      </g>
-                    );
+                      entries.push({ edgeKey, pathD, label: symbol, labelX, labelY });
+                    });
                   });
-                })}
+
+                  // bucket labels by coarse grid so nearby labels are grouped
+                  const buckets = new Map<string, number[]>();
+                  entries.forEach((e, i) => {
+                    const bx = Math.round(e.labelX / 48);
+                    const by = Math.round(e.labelY / 28);
+                    const key = `${bx}:${by}`;
+                    const arr = buckets.get(key) ?? [];
+                    arr.push(i);
+                    buckets.set(key, arr);
+                  });
+
+                  const offsets = new Array<number>(entries.length).fill(0);
+                  buckets.forEach((list) => {
+                    if (list.length <= 1) return;
+                    const n = list.length;
+                    const gap = 18;
+                    for (let i = 0; i < n; i++) {
+                      offsets[list[i]] = (i - (n - 1) / 2) * gap;
+                    }
+                  });
+
+                  return entries.map((e, i) => (
+                    <g key={e.edgeKey}>
+                      <path className="yapar-transition" d={e.pathD} markerEnd={`url(#${markerId})`} fill="none" />
+                      {renderEdgeLabel(e.label, e.labelX, e.labelY + offsets[i], "yapar-transition-label", "middle")}
+                    </g>
+                  ));
+                })()}
               </svg>
 
               {data.states.map((state) => {
@@ -1693,6 +1791,7 @@ export function App() {
                     style={{ left: center.x, top: center.y }}
                     onClick={() => {
                       captureYaparDetailScroll();
+                      captureYaparScroll();
                       setYaparSelectedStateId(state.id);
                     }}
                     aria-pressed={isSelected}
@@ -2792,10 +2891,7 @@ export function App() {
             <button
               className="topbar-action-btn btn"
               type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                void saveActiveTab();
-              }}
+              onClick={() => void saveActiveTab()}
             >
               <span
                 className="panel-icon topbar-icon"
@@ -2809,7 +2905,10 @@ export function App() {
             <button
               className="topbar-action-btn btn"
               type="button"
-              onClick={() => setIsOutputVisible((current) => !current)}
+              onClick={() => {
+                captureYaparScroll();
+                setIsOutputVisible((current) => !current);
+              }}
               aria-controls="output-panel"
               aria-expanded={isOutputVisible}
               aria-label={isOutputVisible ? "Ocultar output" : "Mostrar output"}
@@ -2832,7 +2931,10 @@ export function App() {
             <button
             type="button"
             className={`activity-btn ${leftSidebarView === "explorer" ? "active" : ""}`}
-            onClick={() => setLeftSidebarView("explorer")}
+            onClick={() => {
+              captureYaparScroll();
+              setLeftSidebarView("explorer");
+            }}
             title="Explorer"
             aria-label="Explorer"
           >
@@ -2845,7 +2947,10 @@ export function App() {
           <button
             type="button"
             className={`activity-btn ${leftSidebarView === "pipeline" ? "active" : ""}`}
-            onClick={() => setLeftSidebarView("pipeline")}
+            onClick={() => {
+              captureYaparScroll();
+              setLeftSidebarView("pipeline");
+            }}
             title="Pipeline"
             aria-label="Pipeline"
           >
@@ -2858,7 +2963,10 @@ export function App() {
           <button
             type="button"
             className={`activity-btn ${leftSidebarView === "results" ? "active" : ""}`}
-            onClick={() => setLeftSidebarView("results")}
+            onClick={() => {
+              captureYaparScroll();
+              setLeftSidebarView("results");
+            }}
             title="Resultados"
             aria-label="Resultados"
           >
@@ -2872,7 +2980,7 @@ export function App() {
 
         <aside className="sidepanel">
           {leftSidebarView === "explorer" && (
-            <>
+            <div className="explorer-view">
               <div className="panel-title">
                 <span>Explorer</span>
                 <div className="panel-title-actions">
@@ -2920,12 +3028,11 @@ export function App() {
               </div>
               <div className="path-row" title={workspaceRoot}>
                 <span className="path-row-name">{getPathBaseName(workspaceRoot)}</span>
-                <span className="path-row-hint">{workspaceRoot || "Sin carpeta"}</span>
               </div>
               <div className="file-list">
                 {workspaceRoot && renderTree(workspaceRoot, 0)}
               </div>
-            </>
+            </div>
           )}
 
           {leftSidebarView === "pipeline" && (
@@ -3107,7 +3214,8 @@ export function App() {
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize side panel"
-          onMouseDown={(event) =>
+          onMouseDown={(event) => {
+            captureYaparScroll();
             setResizeState({
               target: "sidebar",
               startX: event.clientX,
@@ -3116,8 +3224,8 @@ export function App() {
               startRightPanelWidth: rightPanelWidth,
               startResultPanelHeight: resultPanelHeight,
               startOutputPanelHeight: outputPanelHeight,
-            })
-          }
+            });
+          }}
         />
 
         <section

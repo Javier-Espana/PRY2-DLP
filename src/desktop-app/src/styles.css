@@ -520,6 +520,34 @@ button {
   padding: 8px 0;
 }
 
+.explorer-view {
+  --explorer-font-scale: 1.15;
+}
+
+.explorer-view .panel-title {
+  font-size: calc(11px * var(--explorer-font-scale));
+}
+
+.explorer-view .panel-title-actions button {
+  font-size: calc(12px * var(--explorer-font-scale));
+}
+
+.explorer-view .path-row-name {
+  font-size: calc(12px * var(--explorer-font-scale));
+}
+
+.explorer-view .entry {
+  font-size: calc(12px * var(--explorer-font-scale));
+}
+
+.explorer-view .entry-kind {
+  font-size: calc(11px * var(--explorer-font-scale));
+}
+
+.explorer-view .entry-create-input {
+  font-size: calc(12px * var(--explorer-font-scale));
+}
+
 .entry {
   width: 100%;
   border: none;
@@ -1449,7 +1477,7 @@ button {
 
 .yapar-transition-label {
   fill: #d5e4ff;
-  font-size: 22px;
+  font-size: 16px;
   font-family: "Consolas", "Cascadia Code", monospace;
   font-weight: 500;
 }
@@ -1784,11 +1812,21 @@ button {
 }
 
 .header-action {
-  background: rgba(63, 140, 255, 0.15) !important;
+  background:
+    linear-gradient(180deg, rgba(63, 140, 255, 0.14), rgba(63, 140, 255, 0.06)),
+    var(--surface-3) !important;
+  color: var(--text);
+  border-bottom-color: rgba(63, 140, 255, 0.22);
+  z-index: 11;
 }
 
 .header-goto {
-  background: rgba(142, 68, 173, 0.15) !important;
+  background:
+    linear-gradient(180deg, rgba(142, 68, 173, 0.14), rgba(142, 68, 173, 0.06)),
+    var(--surface-3) !important;
+  color: var(--text);
+  border-bottom-color: rgba(142, 68, 173, 0.22);
+  z-index: 11;
 }
 
 .cell-state {

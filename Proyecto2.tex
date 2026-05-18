@@ -1,0 +1,191 @@
+\documentclass[12pt,letterpaper]{article}
+
+% --- Paquetes Requeridos ---
+\usepackage[spanish]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+% --- Configuración de Enlaces ---
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Proyecto 2 - DLP: Generador YALex/YAPar},
+    pdfpagemode=FullScreen,
+}
+
+% --- Configuración de listings (Código) ---
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+% --- Configuración de Encabezado y Pie de Página ---
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Proyecto 2 - DLP}
+\lhead{Generador YALex/YAPar}
+\rfoot{Página \thepage}
+
+\begin{document}
+
+% ==========================================
+% PORTADA
+% ==========================================
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+    
+    {\scshape\LARGE Universidad del Valle de Guatemala \par}
+    \vspace{1cm}
+    {\scshape\Large Diseño de Lenguajes de Programación \par}
+    \vspace{1.5cm}
+    {\huge\bfseries Proyecto 2: Generador YALex / YAPar \par}
+    \vspace{0.5cm}
+    {\large\itshape Construcción Autónoma de Analizadores Léxicos y Sintácticos \par}
+    \vspace{2cm}
+    
+    {\Large\bfseries Integrantes del Grupo: \par}
+    \vspace{0.5cm}
+    {\large 1. Angel Esteban Esquit Hernández - 23221 \par}
+    {\large 2. Javier Eduardo España Pacheco - 23361 \par}
+    
+    \vfill
+    {\large Catedrático: Ing. Carlos Jorge Valdez Bautista \par}
+    \vspace{0.8cm}
+    {\large \today \par}
+\end{titlepage}
+
+\newpage
+\tableofcontents
+\newpage
+
+% ==========================================
+% SECCIÓN 1: DISEÑO DEL SOFTWARE
+% ==========================================
+\section{Diseño del Software}
+
+El sistema \textbf{YALex Studio} es una suite integrada para la creación autónoma de compiladores, la cual consta de dos componentes medulares desarrollados completamente desde cero (sin dependencias externas de librerías de autómatas o motores de expresiones regulares):
+\begin{itemize}
+    \item \textbf{Generador Léxico (YALex):} Construye analizadores léxicos (lexers) mediante el método directo a partir de archivos de especificación \texttt{.yal}.
+    \item \textbf{Generador Sintáctico (YAPar):} Genera analizadores sintácticos (parsers) utilizando la técnica de análisis sintáctico SLR (Simple LR) sobre una colección canónica de items LR(0) a partir de archivos de especificación \texttt{.yapar}.
+    \item \textbf{Independencia de los Analizadores Generados:} Los componentes resultantes (\texttt{lexer.py} y \texttt{parser.py}) son completamente autónomos e independientes de los módulos generadores. Esto permite su ejecución autónoma en cualquier entorno de Python estándar sin requerir la presencia de la base de código del compilador.
+\end{itemize}
+
+\subsection{Arquitectura General del Sistema}
+El proyecto está estructurado de manera modular y desacoplada, separando la lógica de análisis, simulación, generación de código y la interfaz de usuario:
+
+\begin{verbatim}
+PRY2-DLP/
++- src/
+|  +- yalex_parser/            <- Implementacion original del lexer
+|  |  +- parser.py            <- Parser de especificaciones .yal
+|  |  +- regex_parser.py      <- Parser de regex y AST
+|  |  +- direct.py            <- AFD por metodo directo
+|  |  +- dfa.py               <- Minimizacion de AFD
+|  |  +- simulator.py         <- Simulacion con traza
+|  |  +- codegen.py           <- Generacion del Lexer
+|  +- yapar_generator/         <- Generador de parsers LR(0)/SLR
+|  |  +- yapar_parser.py      <- Parser de especificaciones .yapar
+|  |  +- lr0.py               <- Automata LR(0), closure y transiciones
+|  |  +- table.py             <- Generador de tablas SLR
+|  |  +- parser.py            <- Maquina de pila de analisis
+|  |  +- codegen.py           <- Generacion del Parser
+|  +- common/                  <- Utilidades de tokens
+|  +- bridge_cli.py            <- Interfaz Bridge
+|  +- bridge_yapar.py          <- Integration YAPar
++- desktop-app/                 <- Interfaz de usuario (Tauri + React)
++- examples/                    <- Casos de prueba (Low, Medium, High)
+\end{verbatim}
+
+\subsection{Flujo de Trabajo e Integración}
+El flujo para la integración del Lexer y el Parser sigue los siguientes pasos:
+\begin{enumerate}
+    \item \textbf{Entrada YALex (\texttt{.yal}):} Se procesa el archivo de tokens, construyendo el AFD correspondiente para generar un script Python ejecutable (\texttt{lexer.py}).
+    \item \textbf{Entrada YAPar (\texttt{.yapar}):} Se procesa la especificación sintáctica, calculando los conjuntos de items LR(0), las transiciones y la tabla SLR para generar un parser autónomo (\texttt{parser.py}).
+    \item \textbf{Ejecución en Cadena:} El archivo de código de entrada (\texttt{input.txt}) es tokenizado secuencialmente por el lexer generado, y el flujo de tokens alimenta directamente al parser SLR, que produce el árbol de análisis sintáctico (AST) o reporta los errores sintácticos con precisión.
+\end{enumerate}
+
+% ==========================================
+% SECCIÓN 2: DOCUMENTACIÓN Y EXPLICACIÓN DEL CÓDIGO
+% ==========================================
+\section{Documentación y Explicación del Código}
+
+\subsection{Generador de Analizadores Léxicos (\texttt{yalex\_parser})}
+Este módulo es el responsable de analizar la especificación de tokens y construir la lógica del escáner:
+\begin{itemize}
+    \item \textbf{\texttt{parser.py}:} Lee la definición del archivo \texttt{.yal}, separando la sección de definiciones (\texttt{let}), las reglas (\texttt{rule}) y el código empotrado del usuario (header y trailer).
+    \item \textbf{\texttt{regex\_parser.py} y \texttt{regex\_ast.py}:} Traducen la notación de las expresiones regulares a un árbol de sintaxis abstracta (AST) autónomo. Soporta operaciones de cerradura de Kleene (\texttt{*}), unión (\texttt{|}), concatenación, y rangos (como \texttt{[a-z]}).
+    \item \textbf{\texttt{direct.py}:} Utiliza el método directo para calcular las funciones de árboles de expresiones regulares: \texttt{nullable}, \texttt{firstpos}, \texttt{lastpos} y \texttt{followpos}. Convierte el AST de la regex directamente en un Autómata Finito Determinista (AFD).
+    \item \textbf{\texttt{dfa.py}:} Aplica el algoritmo de Hopcroft para minimizar los estados del AFD generado, garantizando eficiencia óptima durante la tokenización.
+    \item \textbf{\texttt{simulator.py}:} Contiene el motor que evalúa los caracteres de entrada frente al AFD minimizado utilizando una lógica de \textit{Maximal Munch} (máxima coincidencia).
+\end{itemize}
+
+\subsection{Generador de Analizadores Sintácticos (\texttt{yapar\_generator})}
+Este módulo implementa la lógica de análisis LALR/SLR basada en la gramática libre de contexto (CFG) provista:
+\begin{itemize}
+    \item \textbf{\texttt{yapar\_parser.py}:} Analiza el archivo de gramática \texttt{.yapar}. Reconoce tokens declarados con \texttt{\%token}, el símbolo inicial con \texttt{\%start}, y la lista de producciones sintácticas junto con sus acciones semánticas asociadas.
+    \item \textbf{\texttt{lr0.py}:} Modela los items LR(0) ($A \rightarrow \alpha \cdot \beta$), estados del autómata, y calcula recursivamente el \texttt{closure} de conjuntos de items y las transiciones mediante la función \texttt{GOTO}. Esto genera el Autómata LR(0) Canónico.
+    \item \textbf{\texttt{table.py}:} Computa las funciones auxiliares de gramáticas \texttt{FIRST} y \texttt{FOLLOW} para todos los no-terminales. A partir de los FOLLOW sets y el autómata LR(0), construye la tabla de análisis sintáctico SLR (filas de estados, columnas de terminales y no-terminales) con acciones de:
+    \begin{itemize}
+        \item \textbf{SHIFT (s):} Desplazar un terminal al tope de la pila y transicionar a un nuevo estado.
+        \item \textbf{REDUCE (r):} Reducir una regla de producción aplicando la correspondiente substitución del no-terminal.
+        \item \textbf{ACCEPT (acc):} Aceptación exitosa de la cadena de entrada.
+        \item \textbf{ERROR:} Estado en blanco en la tabla que representa un error sintáctico.
+    \end{itemize}
+    \item \textbf{\texttt{parser.py}:} Implementa el motor de ejecución basado en pila (Stack Machine) que simula el autómata SLR, manteniendo el registro exacto del historial de pasos (Trace) para propósitos de depuración.
+\end{itemize}
+
+% ==========================================
+% SECCIÓN 3: CASOS DE PRUEBA Y CASO COMPLEJO
+% ==========================================
+\section{Resolución de Casos de Prueba}
+
+El sistema fue validado rigurosamente utilizando tres escenarios de prueba de complejidad incremental ubicados en la carpeta \texttt{examples/}:
+\begin{itemize}
+    \item \textbf{Calculadora Simple (\texttt{low}):} Valida expresiones aritméticas de sumas y restas utilizando tokens de identificadores y números.
+    \item \textbf{Lenguaje Estructurado (\texttt{medium}):} Valida flujos de control simples como condicionales \texttt{if-else}, bucles \texttt{while}, asignaciones y llamadas a funciones.
+    \item \textbf{Lenguaje OOP de Alta Complejidad (\texttt{high}):} Representa un subconjunto de lenguaje similar a Java con clases, herencia, constructores, excepciones y arreglos.
+\end{itemize}
+
+% ==========================================
+% SECCIÓN 4: REPOSITORIO DE GITHUB
+% ==========================================
+\section{Enlace al Repositorio de GitHub}
+
+El código fuente completo de la implementación, incluyendo el generador de autómatas, el creador de tablas SLR, el parser guiado por pila, las pruebas unitarias y los ejemplos de entrada se encuentra alojado en el siguiente repositorio público de GitHub:
+
+\begin{center}
+    \url{https://github.com/Javier-Espana/PRY2-DLP}
+\end{center}
+
+\end{document}

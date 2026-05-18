@@ -11,27 +11,13 @@ El proyecto genera analizadores (lexers y parsers) desde especificaciones estilo
 4. Procesa archivos de entrada mediante el flujo lexer → parser
 5. Reporta análisis exitoso o errores detectados
 
-## 📊 Estado del Proyecto
-
-| Componente | Estado | Detalles |
-|-----------|--------|---------|
-| YALex Parser | ✅ COMPLETO | Método directo (FollowPos), AFD minimizado (Hopcroft) |
-| YALex Codegen | ✅ COMPLETO | Genera lexer Python autónomo |
-| YALex Tests | ✅ 15/15 PASANDO | Casos extremos cubiertos |
-| YAPar Parser | ✅ COMPLETO | Especificaciones `.yapar` parseadas |
-| LR(0) Constructor | ✅ COMPLETO | Colección canónica, closure/GOTO |
-| SLR Table Gen | ✅ COMPLETO | ACTION/GOTO, FOLLOW sets |
-| YAPar Codegen | ✅ COMPLETO | Genera parser Python autónomo |
-| LR(0) Visualizer | ✅ COMPLETO | Formato Graphviz DOT |
-| YAPar Tests | ✅ 3/3 PASANDO | Parsing, LR(0), tabla SLR |
-| **Total Tests** | ✅ **18/18 PASANDO** | Suite completa funcional |
-
 ## Estructura Principal
 
 ```text
 src/
     main.py                  # Punto de entrada principal
     bridge_cli.py            # Bridge JSON para la app desktop
+    bridge_yapar.py          # CLI para flujo integrado YALex + YAPar
     yalex_parser/
         parser.py              # Parser de .yal
         regex_parser.py        # Parser de regex
@@ -40,17 +26,26 @@ src/
         dfa.py                 # Construcción y minimización AFD
         simulator.py           # Tokenización con traza
         codegen.py             # Generación de lexer Python
+    yapar_generator/
+        yapar_parser.py        # Parser de especificaciones .yapar
+        lr0.py                 # Autómata LR(0), closure y transiciones GOTO
+        table.py               # Generación de tablas SLR (FIRST/FOLLOW)
+        parser.py              # Motor de pila para análisis sintáctico
+        codegen.py             # Generador del Parser SLR autónomo
 
 desktop-app/
     src/                     # Frontend React + Monaco Editor
     src-tauri/               # Backend Tauri (comandos del sistema)
 
 examples/
-    simple.yal
+    low/                     # Escenario calculadora (simple)
+    medium/                  # Escenario estructurado (medio)
+    high/                    # Escenario clases y objetos (alto)
 
 tests/
     test_yalex_pipeline.py
     test_extreme_scenarios.py
+    test_yapar_generator.py
 ```
 
 ## Requisitos
@@ -104,10 +99,28 @@ Alias explícito:
 python src/main.py --cli
 ```
 
-### Ejecutar lexer generado
+### Generar y ejecutar desde CLI integrada (bridge_yapar.py)
+
+El script `src/bridge_yapar.py` expone comandos directos para automatizar la generación en terminal:
 
 ```bash
-python output/lexer.py tests/input/medium.txt
+# 1. Generar lexer autónomo desde .yal
+python src/bridge_yapar.py gen-lexer examples/medium/lang_medium.yal -o output/lexer.py
+
+# 2. Generar parser autónomo desde .yalp
+python src/bridge_yapar.py gen-parser examples/medium/lang_medium.yalp -o output/parser.py
+
+# 3. Exportar autómata LR(0) a formato Graphviz DOT
+python src/bridge_yapar.py visualize examples/medium/lang_medium.yalp -o output/automaton.dot
+```
+
+### Ejecutar componentes autónomos generados
+
+El lexer y parser generados son autónomos y se pueden encadenar:
+
+```bash
+# Ejecutar lexer generado para tokenizar un archivo
+python output/lexer.py examples/medium/input.txt
 ```
 
 Flujo típico del menú CLI:

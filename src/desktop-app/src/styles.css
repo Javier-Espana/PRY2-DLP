@@ -1780,6 +1780,7 @@ button {
 
 .slr-table-scroll {
   flex: 1;
+  min-height: 320px;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;

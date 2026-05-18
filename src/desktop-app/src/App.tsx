@@ -2600,7 +2600,8 @@ export function App() {
         setGenerateParserOutputPath(joinPath(root, "output", "parser_generated_tauri.py"));
 
         console.log("[Bootstrap] Opening workspace root...");
-        await openWorkspaceRoot(root);
+        const parentRoot = getParentPath(root) || root;
+        await openWorkspaceRoot(parentRoot);
         console.log("[Bootstrap] Workspace root opened successfully");
         setInitError(""); // Clear any errors
       } catch (error) {

@@ -293,6 +293,49 @@ fn resolve_bridge_script(workspace_root: &str) -> Result<PathBuf, String> {
     ))
 }
 
+fn find_in_path(program: &str) -> Option<PathBuf> {
+    let program_path = Path::new(program);
+    if program_path.is_absolute() || program_path.components().count() > 1 {
+        if program_path.exists() {
+            return Some(program_path.to_path_buf());
+        }
+        return None;
+    }
+
+    let path_env = std::env::var_os("PATH")?;
+    let mut candidates: Vec<PathBuf> = std::env::split_paths(&path_env)
+        .map(|dir| dir.join(program))
+        .collect();
+
+    #[cfg(windows)]
+    {
+        if program_path.extension().is_none() {
+            let pathexts = std::env::var_os("PATHEXT")
+                .map(|v| v.to_string_lossy().to_string())
+                .unwrap_or_else(|| ".EXE;.BAT;.CMD;.COM".to_string());
+            let extensions: Vec<String> = pathexts
+                .split(';')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect();
+
+            for dir in std::env::split_paths(&path_env) {
+                for ext in &extensions {
+                    candidates.push(dir.join(format!("{program}{ext}")));
+                }
+            }
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
 fn resolve_python_executable(workspace_root: &str) -> Result<(String, Vec<String>), String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -322,6 +365,15 @@ fn resolve_python_executable(workspace_root: &str) -> Result<(String, Vec<String
     let fallback_names = ["python3", "python", "/usr/bin/python3", "py"];
     for program in fallback_names {
         tried.push(program.to_string());
+        if let Some(found) = find_in_path(program) {
+            let canonical = found.canonicalize().unwrap_or(found);
+            return Ok((
+                strip_windows_extended_prefix(canonical)
+                    .to_string_lossy()
+                    .to_string(),
+                tried,
+            ));
+        }
     }
 
     Err(format!("No se encontró un intérprete de Python válido. Rutas/alias intentados: {}", tried.join(" | ")))

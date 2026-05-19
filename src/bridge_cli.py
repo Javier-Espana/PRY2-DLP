@@ -358,11 +358,17 @@ def _run_action(payload: dict) -> dict:
         for nt, follow_set in getattr(table, "follow", {}).items():
             follow_data[nt] = sorted(list(follow_set))
 
+        productions_list = []
+        for i, prod in enumerate(spec.productions):
+            rhs_str = " ".join(prod.rhs) if prod.rhs else "ε"
+            productions_list.append(f"{i + 1}: {prod.lhs} -> {rhs_str}")
+
         return {
             "action_headers": action_headers,
             "goto_headers": goto_headers,
             "rows": rows,
             "follow": follow_data,
+            "productions": productions_list,
         }
 
     if action == "yaparGenerate":

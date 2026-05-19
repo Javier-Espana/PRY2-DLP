@@ -62,6 +62,7 @@ export type YaparTableResult = {
     goto: Record<string, number>;
   }[];
   follow: Record<string, string[]>;
+  productions?: string[];
 };
 
 export type ParserTraceStep = {

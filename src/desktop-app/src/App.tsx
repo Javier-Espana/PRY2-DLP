@@ -1925,6 +1925,26 @@ export function App() {
     return (
       <div className="slr-table-container">
         <h4 className="card-title">Tabla de Análisis SLR (ACTION / GOTO)</h4>
+        
+        {data.productions && data.productions.length > 0 && (
+          <div className="follow-sets-section card" style={{ marginBottom: "1.5rem" }}>
+            <h4 className="card-title">Gramática Enumerada</h4>
+            <div className="follow-grid">
+              {data.productions.map((prod, idx) => {
+                const parts = prod.split(': ');
+                const num = parts[0];
+                const rule = parts.slice(1).join(': ');
+                return (
+                  <div key={idx} className="follow-row">
+                    <span className="follow-nt">({num})</span>
+                    <span className="follow-values">{rule}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="slr-table-scroll">
           <table className="slr-grid-table">
             <thead>
